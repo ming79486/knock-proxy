@@ -70,7 +70,7 @@ sudo ./knock-proxy server --config ./server-direct.yaml
 敲门后直连：
 
 ```sh
-sudo ./knock-proxy knock --server example.com:443 --client-id client-001 --secret-file ./secret.key --method tcp-syn
+sudo ./knock-proxy knock --server example.com:443 --client-id client-001 --secret-file ./secret.key --method tcp-syn --wait-open
 ssh -p 443 user@example.com
 ```
 
@@ -151,6 +151,12 @@ doctor：
 
 ```sh
 ./knock-proxy doctor --config ./examples/server.yaml
+```
+
+status：
+
+```sh
+./knock-proxy status --config ./examples/server.yaml
 ```
 
 init：

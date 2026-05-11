@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/ming79486/knock-proxy/internal/app"
 )
@@ -45,6 +46,8 @@ func run() error {
 		return runProbe(ctx, os.Args[2:])
 	case "doctor":
 		return runDoctor(ctx, os.Args[2:])
+	case "status", "inspect":
+		return runStatus(ctx, os.Args[2:])
 	case "init":
 		return runInit(ctx, os.Args[2:])
 	case "version", "-v", "--version":
@@ -104,6 +107,8 @@ func runKnock(ctx context.Context, args []string) error {
 	fs.StringVar(&opts.Secret, "secret", "", "shared secret, preferably base64:<data>")
 	fs.StringVar(&opts.SecretFile, "secret-file", "", "path to shared secret file")
 	fs.StringVar(&opts.Method, "method", "", "knock method: tcp-syn, udp, or udp-passive; default is platform-aware")
+	fs.BoolVar(&opts.WaitOpen, "wait-open", false, "after knock, wait until the TCP port accepts connections")
+	fs.DurationVar(&opts.WaitOpenTimeout, "wait-open-timeout", 3*time.Second, "timeout for --wait-open")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -132,6 +137,17 @@ func runDoctor(ctx context.Context, args []string) error {
 		return err
 	}
 	return app.RunDoctor(ctx, opts)
+}
+
+func runStatus(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var opts app.StatusOptions
+	fs.StringVar(&opts.ConfigPath, "config", "", "path to server YAML config")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	return app.RunStatus(ctx, opts)
 }
 
 func runInit(ctx context.Context, args []string) error {
@@ -166,7 +182,7 @@ func printVersion() {
 
 func usageError() error {
 	printUsage()
-	return errors.New("usage: knock-proxy <client|server|knock|probe|doctor|init|version> [flags]")
+	return errors.New("usage: knock-proxy <client|server|knock|probe|doctor|status|init|version> [flags]")
 }
 
 func printUsage() {
@@ -182,8 +198,10 @@ Quick server:
 
 Other:
   knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key
+  knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key --wait-open
   knock-proxy probe --config ./client.yaml
   knock-proxy doctor --config ./server.yaml
+  knock-proxy status --config ./server.yaml
   knock-proxy init server --listen 0.0.0.0:443 --upstream 127.0.0.1:22 --client-id admin
   knock-proxy init client --platform windows --server example.com:443 --secret-file ./secret.key
   knock-proxy version`)

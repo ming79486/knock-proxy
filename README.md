@@ -8,7 +8,7 @@
 
 ## 功能
 
-- server / client / knock / probe / doctor / init 命令
+- server / client / knock / probe / doctor / status / init 命令
 - proxy / direct 访问模式
 - TCP SYN knock、UDP knock、udp-passive knock
 - Windows TCP-SYN knock：优先 WinDivert，未找到时回退 Npcap
@@ -76,6 +76,12 @@ ssh -p 10022 user@127.0.0.1
 sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./generated/secret.key
 ```
 
+敲门后等待 TCP 端口打开：
+
+```sh
+sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./generated/secret.key --wait-open
+```
+
 主动测试：
 
 ```sh
@@ -86,6 +92,12 @@ sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-fil
 
 ```sh
 ./knock-proxy doctor --config ./generated/server.yaml
+```
+
+服务端状态：
+
+```sh
+./knock-proxy status --config ./generated/server.yaml
 ```
 
 ## Windows 客户端
@@ -120,7 +132,7 @@ It is designed for hiding TCP services such as SSH, RDP, database administration
 
 ## Features
 
-- server / client / knock / probe / doctor / init commands
+- server / client / knock / probe / doctor / status / init commands
 - proxy / direct access modes
 - TCP SYN knock, UDP knock, and udp-passive knock
 - Windows TCP-SYN knock: WinDivert preferred, Npcap fallback
@@ -188,6 +200,12 @@ One-shot knock:
 sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./generated/secret.key
 ```
 
+Wait until the TCP port opens after knocking:
+
+```sh
+sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./generated/secret.key --wait-open
+```
+
 Probe:
 
 ```sh
@@ -198,6 +216,12 @@ Doctor:
 
 ```sh
 ./knock-proxy doctor --config ./generated/server.yaml
+```
+
+Server status:
+
+```sh
+./knock-proxy status --config ./generated/server.yaml
 ```
 
 ## Windows Client

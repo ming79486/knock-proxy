@@ -77,6 +77,12 @@ One-shot knock:
 sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./generated/secret.key
 ```
 
+Wait until the TCP port opens after knocking:
+
+```sh
+sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./generated/secret.key --wait-open
+```
+
 Diagnostics:
 
 ```sh

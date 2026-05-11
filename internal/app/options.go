@@ -1,5 +1,7 @@
 package app
 
+import "time"
+
 type ClientOptions struct {
 	ConfigPath string
 	Listen     string
@@ -20,11 +22,13 @@ type ServerOptions struct {
 }
 
 type KnockOptions struct {
-	ServerAddr string
-	ClientID   string
-	Secret     string
-	SecretFile string
-	Method     string
+	ServerAddr      string
+	ClientID        string
+	Secret          string
+	SecretFile      string
+	Method          string
+	WaitOpen        bool
+	WaitOpenTimeout time.Duration
 }
 
 type ProbeOptions struct {

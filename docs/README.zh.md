@@ -77,6 +77,12 @@ ssh -p 10022 user@127.0.0.1
 sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./generated/secret.key
 ```
 
+敲门后等待 TCP 端口打开：
+
+```sh
+sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./generated/secret.key --wait-open
+```
+
 诊断：
 
 ```sh
