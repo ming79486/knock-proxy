@@ -1,0 +1,18 @@
+//go:build linux
+
+package knock
+
+import (
+	"errors"
+	"os"
+)
+
+func CheckClientSupport(method string) error {
+	if method != "tcp-syn" {
+		return nil
+	}
+	if os.Geteuid() == 0 || hasEffectiveCaps(13) {
+		return nil
+	}
+	return errors.New("tcp-syn knock requires CAP_NET_RAW or root; switch knock.method to udp if raw packet injection is unavailable")
+}

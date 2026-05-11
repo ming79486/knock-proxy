@@ -1,0 +1,89 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - run: go test ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            ext: ''
+          - goos: linux
+            goarch: arm64
+            ext: ''
+          - goos: windows
+            goarch: amd64
+            ext: '.exe'
+          - goos: windows
+            goarch: arm64
+            ext: '.exe'
+          - goos: darwin
+            goarch: amd64
+            ext: ''
+          - goos: darwin
+            goarch: arm64
+            ext: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist
+          name="knock-proxy-${GOOS}-${GOARCH}${{ matrix.ext }}"
+          version="${GITHUB_REF_NAME#v}"
+          commit="${GITHUB_SHA::7}"
+          date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          go build -trimpath -ldflags="-s -w -X main.version=${version} -X main.commit=${commit} -X main.date=${date}" -o "dist/${name}" ./cmd/knock-proxy
+          if [ "${GOOS}" = "windows" ]; then
+            (cd dist && zip "${name%.exe}.zip" "${name}")
+          else
+            tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: knock-proxy-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*

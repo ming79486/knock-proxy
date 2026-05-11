@@ -1,0 +1,36 @@
+mode: server
+
+server:
+  tcp_listen: "0.0.0.0:443"
+  upstream: "127.0.0.1:22"
+
+access:
+  mode: "direct"
+  require_tcp_auth: false
+  remove_after_first_connect: true
+  max_connections_per_knock: 1
+
+knock:
+  method: "tcp-syn"
+  time_window_seconds: 30
+
+auth:
+  time_window_seconds: 30
+  nonce_cache_seconds: 300
+  clients:
+    - client_id: "client-001"
+      secret: "base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+
+firewall:
+  backend: "auto"
+  port: 443
+  default_action: "drop"
+  allow_seconds: 5
+  remove_after_auth: true
+
+transport:
+  encryption: false
+
+log:
+  level: "info"
+  format: "text"

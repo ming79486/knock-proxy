@@ -1,0 +1,40 @@
+mode: server
+
+server:
+  tcp_listen: "0.0.0.0:443"
+  upstream: "127.0.0.1:22"
+
+access:
+  mode: "proxy"
+  require_tcp_auth: true
+
+knock:
+  method: "udp"
+  udp_listen: "0.0.0.0:443"
+  udp_port: 443
+  silent_drop_invalid: true
+  time_window_seconds: 30
+
+auth:
+  time_window_seconds: 30
+  nonce_cache_seconds: 300
+  clients:
+    - client_id: "client-001"
+      secret: "base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+      max_connections: 16
+
+firewall:
+  backend: "auto"
+  port: 443
+  default_action: "drop"
+  allow_seconds: 15
+  remove_after_auth: true
+  drop_udp_knock_port: false
+
+transport:
+  encryption: false
+  method: "chacha20-poly1305"
+
+log:
+  level: "info"
+  format: "text"

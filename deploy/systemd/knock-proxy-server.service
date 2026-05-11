@@ -1,0 +1,15 @@
+[Unit]
+Description=Knock Proxy Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/knock-proxy server --config /etc/knock-proxy/server.yaml
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

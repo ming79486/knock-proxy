@@ -1,0 +1,79 @@
+mode: server
+
+server:
+  tcp_listen: "0.0.0.0:443"
+  upstream: "127.0.0.1:22"
+
+access:
+  mode: "proxy"
+  require_tcp_auth: true
+  remove_after_first_connect: true
+  max_connections_per_knock: 1
+
+knock:
+  method: "tcp-syn"
+  udp_listen: "0.0.0.0:443"
+  udp_port: 443
+  silent_drop_invalid: true
+  time_window_seconds: 30
+
+auth:
+  time_window_seconds: 30
+  nonce_cache_seconds: 300
+  clients:
+    - client_id: "client-001"
+      secret: "base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+      max_connections: 16
+
+firewall:
+  backend: "auto"
+  port: 443
+  default_action: "drop"
+  allow_seconds: 15
+  remove_after_auth: true
+  drop_udp_knock_port: false
+
+  nftables:
+    table: "knock_proxy"
+    chain: "input"
+    set_v4: "allowed_clients_v4"
+    set_v6: "allowed_clients_v6"
+    family: "inet"
+
+  iptables:
+    chain: "KNOCK_PROXY"
+
+  ipset:
+    set: "knock_proxy_allowed"
+    set_v6: "knock_proxy_allowed_v6"
+
+  script:
+    allow_cmd: "/etc/knock-proxy/allow.sh"
+    revoke_cmd: "/etc/knock-proxy/revoke.sh"
+    cleanup_cmd: "/etc/knock-proxy/cleanup.sh"
+
+transport:
+  encryption: false
+  method: "chacha20-poly1305"
+
+metrics:
+  enabled: false
+  listen: "127.0.0.1:9090"
+  path: "/metrics"
+
+limits:
+  max_global_connections: 1024
+  max_connections_per_ip: 32
+  max_connections_per_client: 16
+  knock_rate_per_ip: "10/10s"
+  auth_fail_ban_seconds: 300
+
+timeouts:
+  upstream_connect_seconds: 5
+  auth_seconds: 5
+  idle_seconds: 300
+
+log:
+  level: "info"
+  format: "text"
+  file: "/var/log/knock-proxy/server.log"

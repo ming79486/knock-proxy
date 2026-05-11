@@ -1,0 +1,27 @@
+mode: client
+
+client:
+  listen: "127.0.0.1:10022"
+  server_addr: "example.com:443"
+  client_id: "client-001"
+  secret: "base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+
+knock:
+  method: "udp"
+  udp_port: 443
+  timeout_seconds: 3
+  retry: 2
+  time_window_seconds: 30
+
+transport:
+  encryption: false
+  method: "chacha20-poly1305"
+
+timeouts:
+  connect_seconds: 5
+  auth_seconds: 5
+  idle_seconds: 300
+
+log:
+  level: "info"
+  format: "text"
