@@ -11,8 +11,8 @@
 - server / client / knock / probe / doctor / status / init 命令
 - proxy / direct 访问模式
 - TCP SYN knock、UDP knock、udp-passive knock
-- Windows TCP-SYN knock：优先 WinDivert，未找到时回退 Npcap
-- HMAC-SHA256 认证、timestamp + nonce 防重放
+- Windows TCP-SYN knock：experimental，优先 WinDivert，未找到时回退 Npcap；批量部署推荐 UDP
+- HMAC-SHA256 认证；UDP knock/TCP auth 使用 timestamp + nonce 防重放，TCP SYN knock 使用 time-slot HMAC
 - 可选 ChaCha20-Poly1305 基础传输加密
 - nftables、iptables、ipset-iptables、script 防火墙后端
 - OpenWrt 23.x+ nftables/firewall4 支持
@@ -114,7 +114,7 @@ Windows 默认可用 UDP knock：
 sudo ./knock-proxy server --config ./examples/server.udp.yaml
 ```
 
-Windows TCP-SYN knock 也可用。推荐把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录，或放在 `WinDivert/` 子目录，并以管理员权限运行：
+Windows TCP-SYN knock 属于 experimental。推荐把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录，或放在 `WinDivert/` 子目录，并以管理员权限运行：
 
 ```powershell
 .\knock-proxy.exe knock --server example.com:443 --client-id admin --secret-file .\secret.key --method tcp-syn
@@ -135,8 +135,8 @@ It is designed for hiding TCP services such as SSH, RDP, database administration
 - server / client / knock / probe / doctor / status / init commands
 - proxy / direct access modes
 - TCP SYN knock, UDP knock, and udp-passive knock
-- Windows TCP-SYN knock: WinDivert preferred, Npcap fallback
-- HMAC-SHA256 authentication with timestamp + nonce replay protection
+- Windows TCP-SYN knock: experimental, WinDivert preferred, Npcap fallback; UDP is recommended for fleets
+- HMAC-SHA256 authentication; timestamp + nonce replay protection for UDP knock/TCP auth and time-slot HMAC for TCP SYN knock
 - Optional ChaCha20-Poly1305 basic transport encryption
 - nftables, iptables, ipset-iptables, and script firewall backends
 - OpenWrt 23.x+ nftables/firewall4 support
@@ -238,7 +238,7 @@ Use the matching UDP server configuration:
 sudo ./knock-proxy server --config ./examples/server.udp.yaml
 ```
 
-Windows TCP-SYN knock is also available. Place `WinDivert.dll` next to `knock-proxy.exe`, or under a `WinDivert/` subdirectory, and run as administrator:
+Windows TCP-SYN knock is experimental. Place `WinDivert.dll` next to `knock-proxy.exe`, or under a `WinDivert/` subdirectory, and run as administrator:
 
 ```powershell
 .\knock-proxy.exe knock --server example.com:443 --client-id admin --secret-file .\secret.key --method tcp-syn

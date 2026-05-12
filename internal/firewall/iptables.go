@@ -27,10 +27,12 @@ func (i *Iptables) Name() string { return "iptables" }
 func (i *Iptables) Init(ctx context.Context) error {
 	port := strconv.Itoa(i.cfg.Port)
 	udpPort := strconv.Itoa(udpKnockPort(i.cfg))
+	i.cleanupCommand(ctx, "iptables", port, udpPort)
 	if err := i.initCommand(ctx, "iptables", port, udpPort); err != nil {
 		return err
 	}
 	if commandExists("ip6tables") {
+		i.cleanupCommand(ctx, "ip6tables", port, udpPort)
 		return i.initCommand(ctx, "ip6tables", port, udpPort)
 	}
 	return nil

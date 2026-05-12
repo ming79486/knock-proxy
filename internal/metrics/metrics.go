@@ -3,6 +3,7 @@ package metrics
 import (
 	"fmt"
 	"net/http"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -15,10 +16,13 @@ type Registry struct {
 }
 
 func New() *Registry {
-	return &Registry{
-		counters: make(map[string]float64),
-		gauges:   make(map[string]float64),
-	}
+	return &Registry{counters: make(map[string]float64), gauges: make(map[string]float64)}
+}
+
+func NewBuildInfo() *Registry {
+	r := New()
+	r.Set("knock_proxy_build_info", map[string]string{"goos": runtime.GOOS, "goarch": runtime.GOARCH}, 1)
+	return r
 }
 
 func (r *Registry) Inc(name string, labels map[string]string) {

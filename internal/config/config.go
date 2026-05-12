@@ -36,11 +36,13 @@ type Config struct {
 }
 
 type ClientConfig struct {
-	Listen     string `yaml:"listen"`
-	ServerAddr string `yaml:"server_addr"`
-	ClientID   string `yaml:"client_id"`
-	Secret     string `yaml:"secret"`
-	SecretFile string `yaml:"secret_file"`
+	Listen           string `yaml:"listen"`
+	ServerAddr       string `yaml:"server_addr"`
+	ProtectedTCPPort int    `yaml:"protected_tcp_port"`
+	UDPServerAddr    string `yaml:"udp_server_addr"`
+	ClientID         string `yaml:"client_id"`
+	Secret           string `yaml:"secret"`
+	SecretFile       string `yaml:"secret_file"`
 }
 
 type ServerConfig struct {
@@ -59,6 +61,8 @@ type KnockConfig struct {
 	Method            string `yaml:"method"`
 	UDPListen         string `yaml:"udp_listen"`
 	UDPPort           int    `yaml:"udp_port"`
+	UDPKnockPort      int    `yaml:"udp_knock_port"`
+	LogInvalidKnock   bool   `yaml:"log_invalid_knock"`
 	SilentDropInvalid bool   `yaml:"silent_drop_invalid"`
 	TimeoutSeconds    int    `yaml:"timeout_seconds"`
 	Retry             int    `yaml:"retry"`
@@ -132,6 +136,8 @@ type LimitsConfig struct {
 	MaxConnectionsPerClient int    `yaml:"max_connections_per_client"`
 	KnockRatePerIP          string `yaml:"knock_rate_per_ip"`
 	AuthFailBanSeconds      int    `yaml:"auth_fail_ban_seconds"`
+	MaxTrackedIPs           int    `yaml:"max_tracked_ips"`
+	MaxNonceEntries         int    `yaml:"max_nonce_entries"`
 }
 
 type TimeoutsConfig struct {
@@ -164,6 +170,7 @@ type ClientRuntime struct {
 	TransportEncrypted bool
 	TransportMethod    string
 	LogFile            string
+	LogLevel           string
 	LogFormat          string
 }
 
@@ -199,7 +206,11 @@ type ServerRuntime struct {
 	MetricsListen           string
 	MetricsPath             string
 	LogFile                 string
+	LogLevel                string
 	LogFormat               string
+	LogInvalidKnock         bool
+	MaxTrackedIPs           int
+	MaxNonceEntries         int
 }
 
 type ServerClient struct {
@@ -267,6 +278,8 @@ func DefaultConfig() Config {
 			MaxConnectionsPerClient: 16,
 			KnockRatePerIP:          "10/10s",
 			AuthFailBanSeconds:      300,
+			MaxTrackedIPs:           10000,
+			MaxNonceEntries:         100000,
 		},
 		Timeouts: TimeoutsConfig{
 			ConnectSeconds:         5,
@@ -307,14 +320,31 @@ func (c Config) ClientRuntime() (ClientRuntime, error) {
 	if err != nil {
 		return ClientRuntime{}, fmt.Errorf("client.server_addr: %w", err)
 	}
-	udpServerAddr := c.Client.ServerAddr
-	if c.Knock.UDPPort > 0 {
-		if c.Knock.UDPPort > 65535 {
-			return ClientRuntime{}, fmt.Errorf("knock.udp_port (%d) is invalid", c.Knock.UDPPort)
+	protectedPort := serverPort
+	if c.Client.ProtectedTCPPort > 0 {
+		if c.Client.ProtectedTCPPort > 65535 {
+			return ClientRuntime{}, fmt.Errorf("client.protected_tcp_port (%d) is invalid", c.Client.ProtectedTCPPort)
 		}
-		udpServerAddr = net.JoinHostPort(serverHost, strconv.Itoa(c.Knock.UDPPort))
-	} else if c.Knock.UDPPort < 0 {
-		return ClientRuntime{}, fmt.Errorf("knock.udp_port (%d) is invalid", c.Knock.UDPPort)
+		protectedPort = c.Client.ProtectedTCPPort
+	}
+	udpServerAddr := c.Client.ServerAddr
+	if c.Client.UDPServerAddr != "" {
+		if _, _, err := SplitHostPort(c.Client.UDPServerAddr); err != nil {
+			return ClientRuntime{}, fmt.Errorf("client.udp_server_addr: %w", err)
+		}
+		udpServerAddr = c.Client.UDPServerAddr
+	}
+	udpKnockPort := c.Knock.UDPKnockPort
+	if udpKnockPort == 0 {
+		udpKnockPort = c.Knock.UDPPort
+	}
+	if udpKnockPort > 0 {
+		if udpKnockPort > 65535 {
+			return ClientRuntime{}, fmt.Errorf("knock.udp_knock_port (%d) is invalid", udpKnockPort)
+		}
+		udpServerAddr = net.JoinHostPort(serverHost, strconv.Itoa(udpKnockPort))
+	} else if udpKnockPort < 0 {
+		return ClientRuntime{}, fmt.Errorf("knock.udp_knock_port (%d) is invalid", udpKnockPort)
 	}
 
 	if err := validateClientListen(c.Client.Listen); err != nil {
@@ -330,7 +360,7 @@ func (c Config) ClientRuntime() (ClientRuntime, error) {
 		UDPServerAddr:      udpServerAddr,
 		ClientID:           c.Client.ClientID,
 		Secret:             secret,
-		ServerPort:         serverPort,
+		ServerPort:         protectedPort,
 		KnockTimeout:       seconds(c.Knock.TimeoutSeconds),
 		KnockRetry:         defaultInt(c.Knock.Retry, 2),
 		KnockMethod:        knockMethod,
@@ -341,6 +371,7 @@ func (c Config) ClientRuntime() (ClientRuntime, error) {
 		TransportEncrypted: c.Transport.Encryption,
 		TransportMethod:    defaultString(c.Transport.Method, "chacha20-poly1305"),
 		LogFile:            c.Log.File,
+		LogLevel:           defaultString(c.Log.Level, "info"),
 		LogFormat:          defaultString(c.Log.Format, "text"),
 	}, nil
 }
@@ -369,6 +400,9 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 	if err := validateLog(c.Log); err != nil {
 		return ServerRuntime{}, err
 	}
+	if err := validateLimits(c.Limits); err != nil {
+		return ServerRuntime{}, err
+	}
 	if c.Server.TCPListen == "" {
 		return ServerRuntime{}, errors.New("server.tcp_listen is required")
 	}
@@ -376,6 +410,12 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 		return ServerRuntime{}, errors.New("server.upstream is required")
 	}
 
+	if err := validateAddress("server.tcp_listen", c.Server.TCPListen); err != nil {
+		return ServerRuntime{}, err
+	}
+	if err := validateAddress("server.upstream", c.Server.Upstream); err != nil {
+		return ServerRuntime{}, err
+	}
 	_, listenPort, err := SplitHostPort(c.Server.TCPListen)
 	if err != nil {
 		return ServerRuntime{}, fmt.Errorf("server.tcp_listen: %w", err)
@@ -423,6 +463,9 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 	if knockMethod == "udp" && fw.DropUDPKnockPort {
 		return ServerRuntime{}, errors.New("firewall.drop_udp_knock_port cannot be true with knock.method udp; use udp-passive")
 	}
+	if knockMethod == "udp-passive" && fw.Backend == "script" {
+		return ServerRuntime{}, errors.New("knock.method udp-passive is incompatible with firewall.backend script because script cannot manage drop_udp_knock_port; use nftables, iptables, ipset-iptables, or udp mode")
+	}
 	if fw.Backend == "" {
 		fw.Backend = "auto"
 	}
@@ -468,7 +511,11 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 		MetricsListen:           defaultString(c.Metrics.Listen, "127.0.0.1:9090"),
 		MetricsPath:             defaultString(c.Metrics.Path, "/metrics"),
 		LogFile:                 c.Log.File,
+		LogLevel:                defaultString(c.Log.Level, "info"),
 		LogFormat:               defaultString(c.Log.Format, "text"),
+		LogInvalidKnock:         c.Knock.LogInvalidKnock,
+		MaxTrackedIPs:           defaultInt(c.Limits.MaxTrackedIPs, 10000),
+		MaxNonceEntries:         defaultInt(c.Limits.MaxNonceEntries, 100000),
 	}, nil
 }
 
@@ -556,9 +603,36 @@ func validateTransport(t TransportConfig) error {
 }
 
 func validateLog(l LogConfig) error {
+	level := defaultString(l.Level, "info")
+	switch level {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("unsupported log.level %q; expected debug, info, warn, or error", level)
+	}
 	format := defaultString(l.Format, "text")
 	if format != "text" && format != "json" {
 		return fmt.Errorf("unsupported log.format %q; expected text or json", format)
+	}
+	return nil
+}
+
+func validateLimits(l LimitsConfig) error {
+	if l.MaxTrackedIPs < 0 {
+		return errors.New("limits.max_tracked_ips cannot be negative")
+	}
+	if l.MaxNonceEntries < 0 {
+		return errors.New("limits.max_nonce_entries cannot be negative")
+	}
+	return nil
+}
+
+func validateAddress(name, addr string) error {
+	host, _, err := SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if strings.TrimSpace(host) == "" {
+		return fmt.Errorf("%s: host is empty", name)
 	}
 	return nil
 }
@@ -613,9 +687,12 @@ func resolveUDPListen(k KnockConfig, tcpListen string) (string, int, error) {
 	if err != nil {
 		return "", 0, fmt.Errorf("server.tcp_listen: %w", err)
 	}
-	udpPort := k.UDPPort
+	udpPort := k.UDPKnockPort
+	if udpPort == 0 {
+		udpPort = k.UDPPort
+	}
 	if udpPort < 0 || udpPort > 65535 {
-		return "", 0, fmt.Errorf("knock.udp_port (%d) is invalid", udpPort)
+		return "", 0, fmt.Errorf("knock.udp_knock_port (%d) is invalid", udpPort)
 	}
 	if k.UDPListen != "" {
 		_, parsedPort, err := SplitHostPort(k.UDPListen)

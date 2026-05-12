@@ -11,11 +11,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ming79486/knock-proxy/internal/auth"
 	"github.com/ming79486/knock-proxy/internal/config"
+	"github.com/ming79486/knock-proxy/internal/firewall"
 	"github.com/ming79486/knock-proxy/internal/knock"
 	"github.com/ming79486/knock-proxy/internal/secure"
 )
@@ -28,9 +30,23 @@ func RunKnock(ctx context.Context, opts KnockOptions) error {
 	if err != nil {
 		return err
 	}
-	_, port, err := config.SplitHostPort(opts.ServerAddr)
+	host, port, err := config.SplitHostPort(opts.ServerAddr)
 	if err != nil {
 		return err
+	}
+	protectedPort := port
+	if opts.ProtectedTCPPort > 0 {
+		if opts.ProtectedTCPPort > 65535 {
+			return fmt.Errorf("--protected-port %d is invalid", opts.ProtectedTCPPort)
+		}
+		protectedPort = opts.ProtectedTCPPort
+	}
+	knockAddr := opts.ServerAddr
+	if opts.UDPKnockPort > 0 {
+		if opts.UDPKnockPort > 65535 {
+			return fmt.Errorf("--udp-port %d is invalid", opts.UDPKnockPort)
+		}
+		knockAddr = net.JoinHostPort(host, strconv.Itoa(opts.UDPKnockPort))
 	}
 	method := opts.Method
 	if method == "" {
@@ -40,7 +56,7 @@ func RunKnock(ctx context.Context, opts KnockOptions) error {
 		ServerAddr: opts.ServerAddr,
 		ClientID:   opts.ClientID,
 		Secret:     secret,
-		ServerPort: port,
+		ServerPort: protectedPort,
 		TimeWindow: 30 * time.Second,
 	}
 	switch method {
@@ -50,8 +66,10 @@ func RunKnock(ctx context.Context, opts KnockOptions) error {
 		}
 		err = knock.Send(ctx, sendOpts)
 	case "udp":
+		sendOpts.ServerAddr = knockAddr
 		err = knock.SendUDPMethod(ctx, sendOpts, "udp")
 	case "udp-passive":
+		sendOpts.ServerAddr = knockAddr
 		err = knock.SendUDPMethod(ctx, sendOpts, "udp-passive")
 	default:
 		return fmt.Errorf("unsupported knock method %q", method)
@@ -91,10 +109,12 @@ func RunProbe(ctx context.Context, opts ProbeOptions) error {
 	if err := probeResolveServer(rt.ServerAddr); err != nil {
 		return err
 	}
+	knockStart := time.Now()
 	if err := sendKnock(ctx, rt); err != nil {
 		return fmt.Errorf("[FAIL] knock_send_failed: %w\nhint: verify client privileges/driver support and server knock.method", err)
 	}
 	fmt.Println("[OK] knock sent")
+	fmt.Printf("[OK] knock RTT: %s\n", time.Since(knockStart).Round(time.Millisecond))
 	if opts.KnockOnly {
 		return nil
 	}
@@ -113,7 +133,7 @@ func RunProbe(ctx context.Context, opts ProbeOptions) error {
 	if err := auth.WriteFrame(conn, frame); err != nil {
 		return fmt.Errorf("[FAIL] tcp_auth_write_failed: %w", err)
 	}
-	fmt.Println("[OK] tcp auth frame sent")
+	fmt.Printf("[OK] tcp auth frame sent: %s\n", time.Since(start).Round(time.Millisecond))
 	_ = conn.SetDeadline(time.Time{})
 	if rt.TransportEncrypted {
 		conn, err = secure.Wrap(conn, rt.Secret, rt.ClientID, frame.Nonce, rt.ServerPort, secure.ClientRole)
@@ -127,12 +147,14 @@ func RunProbe(ctx context.Context, opts ProbeOptions) error {
 			return fmt.Errorf("[FAIL] probe_payload_write_failed: %w", err)
 		}
 		fmt.Println("[OK] probe payload sent")
+		fmt.Printf("[OK] upstream write RTT: %s\n", time.Since(start).Round(time.Millisecond))
 	}
 	fmt.Println("[OK] probe completed")
 	return nil
 }
 
 func RunDoctor(ctx context.Context, opts DoctorOptions) error {
+	d := &doctorReport{}
 	cfg, err := config.Load(opts.ConfigPath)
 	if err != nil {
 		return err
@@ -144,71 +166,84 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) error {
 	if cfg.Mode == config.ModeClient {
 		rt, err := cfg.ClientRuntime()
 		if err != nil {
-			return fmt.Errorf("[FAIL] client config invalid: %w", err)
+			d.fail("client config invalid: %v", err)
+			return d.finish()
 		}
-		fmt.Println("[OK] client config valid")
-		fmt.Printf("[OK] method: %s\n", rt.KnockMethod)
+		d.ok("client config valid")
+		d.ok("method: %s", rt.KnockMethod)
 		if err := probeResolveServer(rt.ServerAddr); err != nil {
-			fmt.Println(err.Error())
+			d.fail("%s", strings.TrimPrefix(err.Error(), "[FAIL] "))
 		}
 		if err := checkSecretFileMode(cfg.Client.SecretFile); err != nil {
-			fmt.Printf("[WARN] %v\n", err)
+			d.warn("%v", err)
 		}
 		printPlatformClientDoctor(rt)
-		fmt.Println("[OK] doctor completed")
-		return nil
+		return d.finish()
 	}
 	if geteuid() == 0 {
-		fmt.Println("[OK] running as root")
+		d.ok("running as root")
 	} else {
-		fmt.Println("[WARN] not running as root; server tcp-syn/udp-passive modes may require CAP_NET_RAW/CAP_NET_ADMIN")
+		d.warn("not running as root; server tcp-syn/udp-passive modes may require CAP_NET_RAW/CAP_NET_ADMIN")
 	}
 	for _, cap := range effectiveCapabilityStatuses() {
 		if cap.Err != nil {
-			fmt.Printf("[WARN] %s status unavailable: %v\n", cap.Name, cap.Err)
+			d.warn("%s status unavailable: %v", cap.Name, cap.Err)
 			continue
 		}
 		if cap.OK {
-			fmt.Printf("[OK] %s available\n", cap.Name)
+			d.ok("%s available", cap.Name)
 		} else {
-			fmt.Printf("[WARN] %s not available\n", cap.Name)
+			d.warn("%s not available", cap.Name)
 		}
 	}
 	for _, cmd := range []string{"nft", "iptables", "ipset", "ip6tables"} {
 		if path, err := exec.LookPath(cmd); err == nil {
-			fmt.Printf("[OK] %s found: %s\n", cmd, path)
+			d.ok("%s found: %s", cmd, path)
 		} else {
-			fmt.Printf("[WARN] %s not found\n", cmd)
+			d.warn("%s not found", cmd)
 		}
 	}
 	rt, err := cfg.ServerRuntime()
 	if err != nil {
-		return fmt.Errorf("[FAIL] server config invalid: %w", err)
+		d.fail("server config invalid: %v", err)
+		return d.finish()
 	}
-	fmt.Println("[OK] server config valid")
+	d.ok("server config valid")
+
+	if caps, err := firewall.Validate(rt.Firewall); err != nil {
+		d.fail("firewall backend invalid: %v", err)
+	} else {
+		d.ok("firewall backend selected: %s", caps.Backend)
+		for _, cmd := range []string{"nft", "ipset", "iptables", "ip6tables"} {
+			if path := caps.Commands[cmd]; path != "" {
+				d.ok("firewall command %s: %s", cmd, path)
+			}
+		}
+		d.ok("firewall capabilities: timeout=%v drop_udp=%v", caps.Timeout, caps.DropUDP)
+	}
 	if rt.AccessMode == "direct" {
-		fmt.Println("[WARN] direct mode uses IP-based firewall allow; clients behind the same NAT share the window")
+		d.warn("direct mode uses IP-based firewall allow without TCP HMAC authentication; clients behind the same NAT share the window")
 		if rt.AllowTTL > 30*time.Second {
-			fmt.Printf("[WARN] direct mode allow_seconds is high: %s\n", rt.AllowTTL)
+			d.warn("direct mode allow_seconds is high: %s", rt.AllowTTL)
 		}
 	}
 	if canListen(rt.Listen) {
-		fmt.Printf("[OK] tcp listen address available: %s\n", rt.Listen)
+		d.ok("tcp listen address available: %s", rt.Listen)
 	} else {
-		fmt.Printf("[WARN] tcp listen address may be unavailable: %s\n", rt.Listen)
+		d.fail("tcp listen address unavailable: %s", rt.Listen)
 	}
 	if rt.MetricsEnabled {
 		if canListen(rt.MetricsListen) {
-			fmt.Printf("[OK] metrics listen address available: %s\n", rt.MetricsListen)
+			d.ok("metrics listen address available: %s", rt.MetricsListen)
 		} else {
-			fmt.Printf("[WARN] metrics listen address may be unavailable: %s\n", rt.MetricsListen)
+			d.fail("metrics listen address unavailable: %s", rt.MetricsListen)
 		}
 	}
 	if rt.LogFile != "" {
 		if err := checkWritableDir(filepath.Dir(rt.LogFile)); err != nil {
-			fmt.Printf("[WARN] log directory not writable: %v\n", err)
+			d.warn("log directory not writable: %v", err)
 		} else {
-			fmt.Printf("[OK] log directory writable: %s\n", filepath.Dir(rt.LogFile))
+			d.ok("log directory writable: %s", filepath.Dir(rt.LogFile))
 		}
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, rt.UpstreamConnectTimeout)
@@ -216,23 +251,22 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) error {
 	dialer := net.Dialer{}
 	conn, err := dialer.DialContext(dialCtx, "tcp", rt.Upstream)
 	if err != nil {
-		fmt.Printf("[WARN] upstream not reachable: %v\n", err)
+		d.warn("upstream not reachable: %v", err)
 	} else {
 		_ = conn.Close()
-		fmt.Printf("[OK] upstream reachable: %s\n", rt.Upstream)
+		d.ok("upstream reachable: %s", rt.Upstream)
 	}
 	if isNFTBackend(rt.Firewall.Backend) || rt.Firewall.Backend == "auto" || rt.Firewall.Backend == "" {
 		if err := checkNFTTemporaryTable(ctx); err != nil {
-			fmt.Printf("[WARN] nft temporary table check failed: %v\n", err)
+			d.warn("nft temporary table check failed: %v", err)
 		} else {
-			fmt.Println("[OK] nft temporary table check passed")
+			d.ok("nft temporary table check passed")
 		}
 	}
 	if release, ok := readOpenWrtRelease(); ok {
-		fmt.Printf("[OK] OpenWrt detected: %s\n", release)
+		d.ok("OpenWrt detected: %s", release)
 	}
-	fmt.Println("[OK] doctor completed")
-	return nil
+	return d.finish()
 }
 
 func RunInit(ctx context.Context, opts InitOptions) error {
@@ -375,7 +409,7 @@ func writeInitNotes(outDir, platform, method string) error {
 		notes += "\nWindows tcp-syn knock uses WinDivert when WinDivert.dll is available, otherwise Npcap Packet.dll. Run as administrator.\n"
 	}
 	if platform == "darwin" && method == "tcp-syn" {
-		notes += "\nmacOS tcp-syn knock requires root/BPF packet injection permission.\nFor easier deployment, use knock.method: udp.\n"
+		return errors.New("macOS tcp-syn knock is currently not implemented; use knock.method: udp")
 	}
 	return os.WriteFile(filepath.Join(outDir, "NOTES.txt"), []byte(notes), 0o644)
 }
@@ -550,4 +584,20 @@ func readOpenWrtRelease() (string, bool) {
 		}
 	}
 	return strings.TrimSpace(string(data)), true
+}
+
+type doctorReport struct{ failures int }
+
+func (d *doctorReport) ok(format string, args ...any)   { fmt.Printf("[OK] "+format+"\n", args...) }
+func (d *doctorReport) warn(format string, args ...any) { fmt.Printf("[WARN] "+format+"\n", args...) }
+func (d *doctorReport) fail(format string, args ...any) {
+	d.failures++
+	fmt.Printf("[FAIL] "+format+"\n", args...)
+}
+func (d *doctorReport) finish() error {
+	if d.failures > 0 {
+		return fmt.Errorf("doctor completed with %d blocking failure(s)", d.failures)
+	}
+	fmt.Println("[OK] doctor completed")
+	return nil
 }

@@ -30,7 +30,7 @@ Windows clients can use `udp` knock, and since v1.2.1 can also use `tcp-syn` kno
 .\knock-proxy.exe client --config .\examples\client.windows.yaml
 ```
 
-Windows `tcp-syn` mode is available since v1.2.1. WinDivert is recommended: place `WinDivert.dll` next to `knock-proxy.exe` or in a `WinDivert/` subdirectory, and run as administrator. If WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
+Windows `tcp-syn` mode is available since v1.2.1 but should be treated as experimental. WinDivert is recommended: place `WinDivert.dll` next to `knock-proxy.exe` or in a `WinDivert/` subdirectory, and run as administrator. If WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
 
 
 ## direct Mode
@@ -76,7 +76,7 @@ ssh -p 443 user@example.com
 
 For Windows UDP knock, set both the server config and the knock command to `method: "udp"` / `--method udp`. The real application still connects directly to `example.com:443`.
 
-Note: direct mode cannot use TCP second-stage authentication because real clients such as SSH/RDP/MySQL do not send knock-proxy authentication frames. Its security boundary is the short firewall allow window after a successful knock, so keep `allow_seconds` short and enable `remove_after_first_connect`.
+Note: direct mode cannot use TCP second-stage authentication because real clients such as SSH/RDP/MySQL do not send knock-proxy authentication frames. It is weaker than proxy mode; production deployments should prefer proxy mode. Direct mode security is limited to the short firewall allow window after a successful knock, so keep `allow_seconds` short and enable `remove_after_first_connect`.
 
 ## OpenWrt 23.x+
 

@@ -1,7 +1,8 @@
+# Example only. Do not reuse this fixed demo secret in production. Generate a random secret with `knock-proxy init server ...` or `openssl rand -base64 32`.
 mode: server
 
 server:
-  tcp_listen: "0.0.0.0:443"
+  tcp_listen: "127.0.0.1:10443"
   upstream: "127.0.0.1:22"
 
 access:
@@ -23,7 +24,7 @@ auth:
 
 firewall:
   backend: "auto"
-  port: 443
+  port: 10443
   default_action: "drop"
   allow_seconds: 5
   remove_after_auth: true

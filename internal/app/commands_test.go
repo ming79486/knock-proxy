@@ -99,3 +99,15 @@ func TestInitClientWindowsTCPSYNWritesWarning(t *testing.T) {
 		t.Fatalf("expected Windows tcp-syn note to mention WinDivert and administrator privileges, got:\n%s", notes)
 	}
 }
+
+func TestInitClientDarwinTCPSYNRejected(t *testing.T) {
+	dir := t.TempDir()
+	secretFile := filepath.Join(dir, "secret.key")
+	if err := os.WriteFile(secretFile, []byte("1234567890123456"), 0o600); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+	err := RunInit(context.Background(), InitOptions{Kind: "client", Listen: "127.0.0.1:10022", ServerAddr: "example.com:443", ClientID: "client-001", SecretFile: secretFile, OutDir: dir, Platform: "darwin", Method: "tcp-syn"})
+	if err == nil || !strings.Contains(err.Error(), "not implemented") {
+		t.Fatalf("expected darwin tcp-syn rejection, got %v", err)
+	}
+}

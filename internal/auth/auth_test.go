@@ -63,3 +63,16 @@ func TestKnockFrameValidation(t *testing.T) {
 		t.Fatalf("ValidateKnockFrame returned error: %v", err)
 	}
 }
+
+func TestNonceCacheCapacityLimit(t *testing.T) {
+	cache := NewNonceCacheWithLimit(time.Minute, 2)
+	now := time.Now()
+	for _, nonce := range []string{"a", "b", "c"} {
+		if err := cache.Add("client", nonce, now); err != nil {
+			t.Fatalf("Add(%s): %v", nonce, err)
+		}
+	}
+	if got := cache.Len(now); got != 2 {
+		t.Fatalf("Len = %d, want 2", got)
+	}
+}

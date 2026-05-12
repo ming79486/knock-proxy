@@ -17,11 +17,12 @@ type Event struct {
 }
 
 type ListenOptions struct {
-	Port        int
-	KnockPort   int
-	Clients     []auth.ClientSecret
-	TimeWindow  time.Duration
-	AllowPacket func(net.IP) bool
+	Port          int
+	KnockPort     int
+	Clients       []auth.ClientSecret
+	TimeWindow    time.Duration
+	AllowPacket   func(net.IP) bool
+	InvalidPacket func(net.IP, string)
 }
 
 type SendOptions struct {

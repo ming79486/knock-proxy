@@ -14,5 +14,5 @@ func CheckClientSupport(method string) error {
 	if os.Geteuid() == 0 || hasEffectiveCaps(13) {
 		return nil
 	}
-	return errors.New("tcp-syn knock requires CAP_NET_RAW or root; switch knock.method to udp if raw packet injection is unavailable")
+	return errors.New("tcp-syn knock requires CAP_NET_RAW or root; remediation: run as root, setcap cap_net_raw+ep on knock-proxy, or use systemd AmbientCapabilities=CAP_NET_RAW; switch knock.method to udp if raw packet injection is unavailable")
 }

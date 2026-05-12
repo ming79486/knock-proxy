@@ -28,9 +28,9 @@ Local application
 - `server --dry-run`
 - proxy / direct access modes
 - TCP SYN knock, UDP knock, and udp-passive knock
-- Windows TCP-SYN knock: WinDivert preferred, Npcap fallback
+- Windows TCP-SYN knock: experimental, WinDivert preferred, Npcap fallback; UDP is recommended for fleets
 - HMAC-SHA256 second-stage authentication
-- Timestamp + nonce replay protection
+- Timestamp + nonce replay protection for UDP knock/TCP auth; time-slot HMAC for TCP SYN knock
 - ChaCha20-Poly1305 basic transport encryption
 - nftables, iptables, ipset-iptables, and script firewall backends
 - OpenWrt 23.x+ nftables/firewall4 support

@@ -26,6 +26,55 @@ type Checker interface {
 	IsAllowed(ctx context.Context, ip net.IP, port int) (bool, error)
 }
 
+type Capabilities struct {
+	Backend  string
+	Commands map[string]string
+	Timeout  bool
+	DropUDP  bool
+}
+
+func Validate(cfg config.FirewallConfig) (Capabilities, error) {
+	b, err := New(cfg)
+	if err != nil {
+		return Capabilities{}, err
+	}
+	return Describe(b.Name()), nil
+}
+
+func Describe(name string) Capabilities {
+	c := Capabilities{Backend: name, Commands: make(map[string]string)}
+	for _, cmd := range backendCommands(name) {
+		if path, err := exec.LookPath(cmd); err == nil {
+			c.Commands[cmd] = path
+		}
+	}
+	switch name {
+	case "nftables", "openwrt-fw4", "ipset-iptables":
+		c.Timeout = true
+		c.DropUDP = true
+	case "iptables":
+		c.Timeout = false
+		c.DropUDP = true
+	case "script":
+		c.Timeout = false
+		c.DropUDP = false
+	}
+	return c
+}
+
+func backendCommands(name string) []string {
+	switch name {
+	case "nftables", "openwrt-fw4":
+		return []string{"nft"}
+	case "ipset-iptables":
+		return []string{"ipset", "iptables", "ip6tables"}
+	case "iptables":
+		return []string{"iptables", "ip6tables"}
+	default:
+		return nil
+	}
+}
+
 func New(cfg config.FirewallConfig) (Backend, error) {
 	name := cfg.Backend
 	if name == "" {

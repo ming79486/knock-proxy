@@ -147,3 +147,30 @@ func TestServerRuntimeRejectsDirectModeWithTCPAuth(t *testing.T) {
 		t.Fatal("expected direct mode with TCP auth to be rejected")
 	}
 }
+
+func TestServerRuntimeRejectsUDPPassiveWithScriptBackend(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Mode = ModeServer
+	cfg.Server.TCPListen = "0.0.0.0:443"
+	cfg.Server.Upstream = "127.0.0.1:22"
+	cfg.Knock.Method = "udp-passive"
+	cfg.Firewall.Backend = "script"
+	cfg.Firewall.Script.AllowCmd = "true"
+	cfg.Firewall.Script.RevokeCmd = "true"
+	cfg.Firewall.Script.CleanupCmd = "true"
+	cfg.Auth.Clients = []AuthClient{{ClientID: "client-001", Secret: "1234567890123456"}}
+	if _, err := cfg.ServerRuntime(); err == nil {
+		t.Fatal("expected udp-passive + script backend to be rejected")
+	}
+}
+
+func TestServerRuntimeRejectsBadUpstreamAddress(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Mode = ModeServer
+	cfg.Server.TCPListen = "0.0.0.0:443"
+	cfg.Server.Upstream = "127.0.0.1"
+	cfg.Auth.Clients = []AuthClient{{ClientID: "client-001", Secret: "1234567890123456"}}
+	if _, err := cfg.ServerRuntime(); err == nil {
+		t.Fatal("expected malformed upstream to be rejected")
+	}
+}

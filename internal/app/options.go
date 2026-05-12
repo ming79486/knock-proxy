@@ -22,13 +22,15 @@ type ServerOptions struct {
 }
 
 type KnockOptions struct {
-	ServerAddr      string
-	ClientID        string
-	Secret          string
-	SecretFile      string
-	Method          string
-	WaitOpen        bool
-	WaitOpenTimeout time.Duration
+	ServerAddr       string
+	ClientID         string
+	Secret           string
+	SecretFile       string
+	Method           string
+	UDPKnockPort     int
+	ProtectedTCPPort int
+	WaitOpen         bool
+	WaitOpenTimeout  time.Duration
 }
 
 type ProbeOptions struct {

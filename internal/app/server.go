@@ -32,7 +32,7 @@ func RunServer(ctx context.Context, opts ServerOptions) error {
 		return err
 	}
 	if opts.DryRun {
-		return printServerDryRun(rt)
+		return printServerDryRun(ctx, rt)
 	}
 	if rt.KnockMethod == "tcp-syn" || rt.KnockMethod == "udp-passive" {
 		if err := knock.CheckServerPrivileges(); err != nil {
@@ -40,7 +40,7 @@ func RunServer(ctx context.Context, opts ServerOptions) error {
 		}
 	}
 
-	log, err := logging.New(rt.LogFile, rt.LogFormat)
+	log, err := logging.NewWithLevel(rt.LogFile, rt.LogLevel, rt.LogFormat)
 	if err != nil {
 		return err
 	}
@@ -88,11 +88,12 @@ func RunServer(ctx context.Context, opts ServerOptions) error {
 	knockErr := make(chan error, 1)
 	go func() {
 		listenOpts := knock.ListenOptions{
-			Port:        rt.Port,
-			KnockPort:   rt.UDPPort,
-			Clients:     state.knockClients,
-			TimeWindow:  rt.KnockTimeWindow,
-			AllowPacket: state.allowKnockPacket,
+			Port:          rt.Port,
+			KnockPort:     rt.UDPPort,
+			Clients:       state.knockClients,
+			TimeWindow:    rt.KnockTimeWindow,
+			AllowPacket:   state.allowKnockPacket,
+			InvalidPacket: state.invalidKnockPacket,
 		}
 		switch rt.KnockMethod {
 		case "tcp-syn":
@@ -180,7 +181,10 @@ func checkUpstream(parent context.Context, rt config.ServerRuntime) error {
 	return conn.Close()
 }
 
-func printServerDryRun(rt config.ServerRuntime) error {
+func printServerDryRun(ctx context.Context, rt config.ServerRuntime) error {
+	if err := validateRuntimeStartup(ctx, rt, false); err != nil {
+		return err
+	}
 	fmt.Println("DRY-RUN server configuration")
 	fmt.Printf("tcp_listen: %s\n", rt.Listen)
 	fmt.Printf("upstream: %s\n", rt.Upstream)
@@ -190,10 +194,16 @@ func printServerDryRun(rt config.ServerRuntime) error {
 		fmt.Printf("knock.udp_listen: %s\n", rt.UDPListen)
 	}
 	if rt.KnockMethod == "udp-passive" {
-		fmt.Printf("knock.udp_port: %d\n", rt.UDPPort)
+		fmt.Printf("knock.udp_knock_port: %d\n", rt.UDPPort)
 		fmt.Printf("firewall.drop_udp_knock_port: %v\n", rt.Firewall.DropUDPKnockPort)
 	}
-	fmt.Printf("firewall.backend: %s\n", rt.Firewall.Backend)
+	if caps, err := firewall.Validate(rt.Firewall); err == nil {
+		fmt.Printf("firewall.backend: %s (selected: %s)\n", rt.Firewall.Backend, caps.Backend)
+		fmt.Printf("firewall.supports_timeout: %v\n", caps.Timeout)
+		fmt.Printf("firewall.supports_drop_udp: %v\n", caps.DropUDP)
+	} else {
+		fmt.Printf("firewall.backend: %s (invalid: %v)\n", rt.Firewall.Backend, err)
+	}
 	fmt.Printf("firewall.default_action: %s\n", rt.Firewall.DefaultAction)
 	fmt.Printf("firewall.port: %d\n", rt.Port)
 	fmt.Printf("firewall.allow_seconds: %d\n", int(rt.AllowTTL.Seconds()))
@@ -204,6 +214,30 @@ func printServerDryRun(rt config.ServerRuntime) error {
 		fmt.Printf("metrics.path: %s\n", rt.MetricsPath)
 	}
 	fmt.Println("No changes applied.")
+	return nil
+}
+
+func validateRuntimeStartup(ctx context.Context, rt config.ServerRuntime, checkUpstreamReachable bool) error {
+	ln, err := net.Listen("tcp", rt.Listen)
+	if err != nil {
+		return fmt.Errorf("tcp listen address unavailable %s: %w; remediation: choose a free address/port or stop the existing listener", rt.Listen, err)
+	}
+	_ = ln.Close()
+	if rt.KnockMethod == "udp" {
+		pc, err := net.ListenPacket("udp", rt.UDPListen)
+		if err != nil {
+			return fmt.Errorf("udp knock listen address unavailable %s: %w; remediation: choose a free udp_knock_port/udp_listen", rt.UDPListen, err)
+		}
+		_ = pc.Close()
+	}
+	if _, err := firewall.New(rt.Firewall); err != nil {
+		return fmt.Errorf("firewall backend invalid: %w", err)
+	}
+	if checkUpstreamReachable {
+		if err := checkUpstream(ctx, rt); err != nil {
+			return fmt.Errorf("upstream unreachable %s: %w; remediation: start the upstream service or fix server.upstream", rt.Upstream, err)
+		}
+	}
 	return nil
 }
 
@@ -221,7 +255,7 @@ type serverState struct {
 }
 
 func newServerState(rt config.ServerRuntime, fw firewall.Backend, log *logging.Logger) (*serverState, error) {
-	rate, err := limits.NewRateLimiter(rt.KnockRatePerIP)
+	rate, err := limits.NewRateLimiterWithLimit(rt.KnockRatePerIP, rt.MaxTrackedIPs)
 	if err != nil {
 		return nil, err
 	}
@@ -233,11 +267,11 @@ func newServerState(rt config.ServerRuntime, fw firewall.Backend, log *logging.L
 		rt:           rt,
 		fw:           fw,
 		log:          log,
-		metrics:      metrics.New(),
+		metrics:      metrics.NewBuildInfo(),
 		knocks:       newKnockStore(),
-		nonces:       auth.NewNonceCache(rt.NonceCacheTTL),
+		nonces:       auth.NewNonceCacheWithLimit(rt.NonceCacheTTL, rt.MaxNonceEntries),
 		rate:         rate,
-		bans:         limits.NewBanTracker(rt.AuthFailBanTTL),
+		bans:         limits.NewBanTrackerWithLimit(rt.AuthFailBanTTL, rt.MaxTrackedIPs),
 		conns:        limits.NewConnections(rt.MaxGlobalConnections, rt.MaxConnectionsPerIP, rt.MaxConnectionsPerClient),
 		knockClients: clients,
 	}, nil
@@ -247,15 +281,24 @@ func (s *serverState) allowKnockPacket(src net.IP) bool {
 	now := time.Now()
 	if s.bans.IsBanned("ip:"+src.String(), now) {
 		s.log.Event("knock rejected", logging.F("src", src), logging.F("reason", "rate_limited"))
+		s.metrics.Inc("knock_proxy_rate_limit_rejected_total", nil)
 		s.metrics.Inc("knock_proxy_knock_rejected_total", metrics.Reason("rate_limited"))
 		return false
 	}
 	if !s.rate.Allow(src.String(), now) {
 		s.log.Event("knock rejected", logging.F("src", src), logging.F("reason", "rate_limited"))
+		s.metrics.Inc("knock_proxy_rate_limit_rejected_total", nil)
 		s.metrics.Inc("knock_proxy_knock_rejected_total", metrics.Reason("rate_limited"))
 		return false
 	}
 	return true
+}
+
+func (s *serverState) invalidKnockPacket(src net.IP, reason string) {
+	if !s.rt.LogInvalidKnock {
+		return
+	}
+	s.log.Warn("invalid knock packet", logging.F("src", src), logging.F("reason", reason))
 }
 
 func (s *serverState) handleKnock(ev knock.Event) {
@@ -264,6 +307,7 @@ func (s *serverState) handleKnock(ev knock.Event) {
 
 	if s.bans.IsBanned("client:"+ev.ClientID, time.Now()) {
 		s.log.Event("knock rejected", logging.F("src", ev.SourceIP), logging.F("client_id", ev.ClientID), logging.F("reason", "rate_limited"))
+		s.metrics.Inc("knock_proxy_rate_limit_rejected_total", nil)
 		s.metrics.Inc("knock_proxy_knock_rejected_total", metrics.Reason("rate_limited"))
 		return
 	}
@@ -300,6 +344,7 @@ func (s *serverState) handleKnock(ev knock.Event) {
 		logging.F("backend", s.fw.Name()),
 	)
 	s.metrics.Inc("knock_proxy_knock_accepted_total", nil)
+	s.metrics.AddGauge("knock_proxy_active_allow_entries", nil, 1)
 
 	time.AfterFunc(s.rt.AllowTTL, func() {
 		if !s.knocks.expire(ev.SourceIP, ev.ClientID, time.Now()) {
@@ -308,6 +353,7 @@ func (s *serverState) handleKnock(ev knock.Event) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = s.fw.Revoke(ctx, ev.SourceIP, s.rt.Port)
+		s.metrics.AddGauge("knock_proxy_active_allow_entries", nil, -1)
 	})
 }
 
@@ -381,6 +427,7 @@ func (s *serverState) handleConn(parent context.Context, conn net.Conn) {
 		shouldRevoke := s.knocks.removeOne(srcIP, frame.ClientID, time.Now())
 		if shouldRevoke {
 			revokeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			s.metrics.AddGauge("knock_proxy_active_allow_entries", nil, -1)
 			if err := s.fw.Revoke(revokeCtx, srcIP, s.rt.Port); err != nil {
 				s.log.Event("firewall revoke failed", logging.F("src", srcIP), logging.F("client_id", frame.ClientID), logging.F("backend", s.fw.Name()), logging.F("error", err))
 			}
@@ -459,6 +506,7 @@ func (s *serverState) handleDirectConn(parent context.Context, conn net.Conn, sr
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = s.fw.Revoke(ctx, srcIP, s.rt.Port)
 		cancel()
+		s.metrics.AddGauge("knock_proxy_active_allow_entries", nil, -1)
 	}
 	upstream, err := s.dialUpstream(parent)
 	if err != nil {
@@ -497,9 +545,11 @@ func (s *serverState) recordFailure(srcIP net.IP, clientID, reason string, err e
 	}
 	if s.bans.RecordFailure("ip:"+srcIP.String(), time.Now()) {
 		fields = append(fields, logging.F("ban", s.rt.AuthFailBanTTL.String()))
+		s.metrics.Set("knock_proxy_ban_count", nil, float64(s.bans.Count(time.Now())))
 	}
 	if clientID != "" && s.bans.RecordFailure("client:"+clientID, time.Now()) {
 		fields = append(fields, logging.F("client_ban", s.rt.AuthFailBanTTL.String()))
+		s.metrics.Set("knock_proxy_ban_count", nil, float64(s.bans.Count(time.Now())))
 	}
 	s.log.Event("tcp auth rejected", fields...)
 	s.metrics.Inc("knock_proxy_tcp_auth_rejected_total", metrics.Reason(reason))
@@ -508,10 +558,16 @@ func (s *serverState) recordFailure(srcIP net.IP, clientID, reason string, err e
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = s.fw.Revoke(ctx, srcIP, s.rt.Port)
+		removed := 0
 		if clientID != "" {
-			s.knocks.removeOne(srcIP, clientID, time.Now())
+			if s.knocks.removeOne(srcIP, clientID, time.Now()) {
+				removed = 1
+			}
 		} else {
-			s.knocks.removeIP(srcIP)
+			removed = s.knocks.removeIP(srcIP)
+		}
+		if removed > 0 {
+			s.metrics.AddGauge("knock_proxy_active_allow_entries", nil, -float64(removed))
 		}
 	}
 }
@@ -522,7 +578,7 @@ func startMetricsServer(ctx context.Context, rt config.ServerRuntime, registry *
 	}
 	mux := http.NewServeMux()
 	mux.Handle(rt.MetricsPath, registry.Handler())
-	server := &http.Server{Addr: rt.MetricsListen, Handler: mux}
+	server := &http.Server{Addr: rt.MetricsListen, Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: rt.IdleTimeout}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -52,14 +52,22 @@ func RunStatus(ctx context.Context, opts StatusOptions) error {
 	fmt.Printf("access mode: %s\n", rt.AccessMode)
 
 	fmt.Println("allowed clients:")
-	if !isNFTBackend(backend) {
-		fmt.Printf("  inspection is implemented for nftables/openwrt-fw4; backend=%s\n", backend)
+	var clients []allowedClientStatus
+	var inspectErr error
+	switch backend {
+	case "nftables", "openwrt-fw4":
+		clients, inspectErr = inspectNFTAllowedClients(ctx, rt.Firewall)
+	case "ipset-iptables":
+		clients, inspectErr = inspectIPSetAllowedClients(ctx, rt.Firewall)
+	case "iptables":
+		clients, inspectErr = inspectIptablesAllowedClients(ctx, rt.Firewall)
+	default:
+		fmt.Printf("  inspection is not implemented for backend=%s\n", backend)
 		printStatusMetrics(rt)
 		return nil
 	}
-	clients, err := inspectNFTAllowedClients(ctx, rt.Firewall)
-	if err != nil {
-		fmt.Printf("  unavailable: %v\n", err)
+	if inspectErr != nil {
+		fmt.Printf("  unavailable: %v\n", inspectErr)
 		printStatusMetrics(rt)
 		return nil
 	}
@@ -220,4 +228,114 @@ func nftSetV6(cfg config.FirewallConfig) string {
 		return cfg.Nftables.SetV6
 	}
 	return "allowed_clients_v6"
+}
+
+func inspectIPSetAllowedClients(ctx context.Context, cfg config.FirewallConfig) ([]allowedClientStatus, error) {
+	sets := []string{ipsetName(cfg), ipsetNameV6(cfg)}
+	var out []allowedClientStatus
+	var errs []string
+	for _, set := range sets {
+		clients, err := listIPSet(ctx, set)
+		if err != nil {
+			errs = append(errs, err.Error())
+			continue
+		}
+		out = append(out, clients...)
+	}
+	if len(out) == 0 && len(errs) > 0 {
+		return nil, errors.New(strings.Join(errs, "; "))
+	}
+	return out, nil
+}
+
+func listIPSet(ctx context.Context, set string) ([]allowedClientStatus, error) {
+	cmd := exec.CommandContext(ctx, "ipset", "list", set)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("ipset list %s failed: %w: %s", set, err, strings.TrimSpace(string(output)))
+	}
+	var out []allowedClientStatus
+	inMembers := false
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "Members:" {
+			inMembers = true
+			continue
+		}
+		if !inMembers || line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) > 0 && isIPLiteral(fields[0]) {
+			status := allowedClientStatus{Address: fields[0]}
+			for i := 1; i+1 < len(fields); i++ {
+				if fields[i] == "timeout" {
+					status.Expires = fields[i+1] + "s"
+				}
+			}
+			out = append(out, status)
+		}
+	}
+	return out, nil
+}
+
+func inspectIptablesAllowedClients(ctx context.Context, cfg config.FirewallConfig) ([]allowedClientStatus, error) {
+	var out []allowedClientStatus
+	var errs []string
+	for _, cmdName := range []string{"iptables", "ip6tables"} {
+		if _, err := exec.LookPath(cmdName); err != nil {
+			continue
+		}
+		clients, err := listIptablesChain(ctx, cmdName, iptablesChain(cfg))
+		if err != nil {
+			errs = append(errs, err.Error())
+			continue
+		}
+		out = append(out, clients...)
+	}
+	if len(out) == 0 && len(errs) > 0 {
+		return nil, errors.New(strings.Join(errs, "; "))
+	}
+	return out, nil
+}
+
+func listIptablesChain(ctx context.Context, cmdName, chain string) ([]allowedClientStatus, error) {
+	cmd := exec.CommandContext(ctx, cmdName, "-S", chain)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("%s -S %s failed: %w: %s", cmdName, chain, err, strings.TrimSpace(string(output)))
+	}
+	seen := map[string]bool{}
+	var out []allowedClientStatus
+	fields := strings.Fields(string(output))
+	for i := 0; i+1 < len(fields); i++ {
+		if fields[i] == "-s" {
+			addr := strings.TrimSuffix(fields[i+1], "/32")
+			addr = strings.TrimSuffix(addr, "/128")
+			if isIPLiteral(addr) && !seen[addr] {
+				seen[addr] = true
+				out = append(out, allowedClientStatus{Address: addr})
+			}
+		}
+	}
+	return out, nil
+}
+
+func ipsetName(cfg config.FirewallConfig) string {
+	if cfg.IPSet.Set != "" {
+		return cfg.IPSet.Set
+	}
+	return "knock_proxy_allowed"
+}
+func ipsetNameV6(cfg config.FirewallConfig) string {
+	if cfg.IPSet.SetV6 != "" {
+		return cfg.IPSet.SetV6
+	}
+	return "knock_proxy_allowed_v6"
+}
+func iptablesChain(cfg config.FirewallConfig) string {
+	if cfg.Iptables.Chain != "" {
+		return cfg.Iptables.Chain
+	}
+	return "KNOCK_PROXY"
 }

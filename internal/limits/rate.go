@@ -9,21 +9,24 @@ import (
 )
 
 type RateLimiter struct {
-	mu     sync.Mutex
-	limit  int
-	window time.Duration
-	events map[string][]time.Time
+	mu       sync.Mutex
+	limit    int
+	window   time.Duration
+	maxKeys  int
+	events   map[string][]time.Time
+	lastSeen map[string]time.Time
 }
 
-func NewRateLimiter(spec string) (*RateLimiter, error) {
+func NewRateLimiter(spec string) (*RateLimiter, error) { return NewRateLimiterWithLimit(spec, 0) }
+
+func NewRateLimiterWithLimit(spec string, maxKeys int) (*RateLimiter, error) {
 	limit, window, err := ParseRate(spec)
 	if err != nil {
 		return nil, err
 	}
 	return &RateLimiter{
-		limit:  limit,
-		window: window,
-		events: make(map[string][]time.Time),
+		limit: limit, window: window, maxKeys: maxKeys,
+		events: make(map[string][]time.Time), lastSeen: make(map[string]time.Time),
 	}, nil
 }
 
@@ -48,6 +51,7 @@ func (r *RateLimiter) Allow(key string, now time.Time) bool {
 	defer r.mu.Unlock()
 
 	cutoff := now.Add(-r.window)
+	r.pruneLocked(cutoff, now)
 	events := r.events[key]
 	keep := events[:0]
 	for _, t := range events {
@@ -61,5 +65,41 @@ func (r *RateLimiter) Allow(key string, now time.Time) bool {
 	}
 	keep = append(keep, now)
 	r.events[key] = keep
+	r.lastSeen[key] = now
+	if r.maxKeys > 0 && len(r.events) > r.maxKeys {
+		r.evictOldestLocked()
+	}
 	return true
+}
+
+func (r *RateLimiter) pruneLocked(cutoff, now time.Time) {
+	for key, events := range r.events {
+		keep := events[:0]
+		for _, t := range events {
+			if t.After(cutoff) {
+				keep = append(keep, t)
+			}
+		}
+		if len(keep) == 0 {
+			delete(r.events, key)
+			delete(r.lastSeen, key)
+		} else {
+			r.events[key] = keep
+			r.lastSeen[key] = keep[len(keep)-1]
+		}
+	}
+}
+
+func (r *RateLimiter) evictOldestLocked() {
+	oldestKey := ""
+	var oldest time.Time
+	for key, t := range r.lastSeen {
+		if oldestKey == "" || t.Before(oldest) {
+			oldestKey, oldest = key, t
+		}
+	}
+	if oldestKey != "" {
+		delete(r.events, oldestKey)
+		delete(r.lastSeen, oldestKey)
+	}
 }

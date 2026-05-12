@@ -77,13 +77,22 @@ func ListenUDP(ctx context.Context, listen string, opts ListenOptions, handler H
 		}
 		var frame auth.Frame
 		if err := json.Unmarshal(buf[:n], &frame); err != nil {
+			if opts.InvalidPacket != nil {
+				opts.InvalidPacket(udpAddr.IP, "invalid_json")
+			}
 			continue
 		}
 		client, ok := clients[frame.ClientID]
 		if !ok {
+			if opts.InvalidPacket != nil {
+				opts.InvalidPacket(udpAddr.IP, "unknown_client_id")
+			}
 			continue
 		}
 		if err := auth.ValidateKnockFrame(frame, client.Secret, opts.Port, "udp", time.Now(), opts.TimeWindow); err != nil {
+			if opts.InvalidPacket != nil {
+				opts.InvalidPacket(udpAddr.IP, err.Error())
+			}
 			continue
 		}
 		handler(Event{SourceIP: udpAddr.IP, ClientID: frame.ClientID, Nonce: frame.Nonce})

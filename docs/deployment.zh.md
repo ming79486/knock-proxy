@@ -30,7 +30,7 @@ Windows 客户端可使用 `udp` knock，也可在 v1.2.1 起使用 `tcp-syn` kn
 .\knock-proxy.exe client --config .\examples\client.windows.yaml
 ```
 
-Windows `tcp-syn` 模式在 v1.2.1 起可用，推荐使用 WinDivert：把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录或 `WinDivert/` 子目录，并以管理员权限运行。若未找到 WinDivert，会回退到 Npcap `Packet.dll`。
+Windows `tcp-syn` 模式在 v1.2.1 起可用但应视为 experimental，推荐使用 WinDivert：把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录或 `WinDivert/` 子目录，并以管理员权限运行。若未找到 WinDivert，会回退到 Npcap `Packet.dll`。
 
 
 ## direct 模式

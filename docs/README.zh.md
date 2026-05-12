@@ -28,9 +28,9 @@
 - `server --dry-run`
 - proxy / direct 访问模式
 - TCP SYN knock、UDP knock、udp-passive knock
-- Windows TCP-SYN knock：优先 WinDivert，未找到时回退 Npcap
+- Windows TCP-SYN knock：experimental，优先 WinDivert，未找到时回退 Npcap；批量部署推荐 UDP
 - HMAC-SHA256 二次认证
-- timestamp + nonce 防重放
+- UDP knock/TCP auth 使用 timestamp + nonce 防重放；TCP SYN knock 使用 time-slot HMAC
 - ChaCha20-Poly1305 基础传输加密
 - nftables、iptables、ipset-iptables、script 防火墙后端
 - OpenWrt 23.x+ nftables/firewall4 支持

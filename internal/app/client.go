@@ -30,7 +30,7 @@ func RunClient(ctx context.Context, opts ClientOptions) error {
 		return err
 	}
 
-	log, err := logging.New(rt.LogFile, rt.LogFormat)
+	log, err := logging.NewWithLevel(rt.LogFile, rt.LogLevel, rt.LogFormat)
 	if err != nil {
 		return err
 	}

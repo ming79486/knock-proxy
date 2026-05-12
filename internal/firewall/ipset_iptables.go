@@ -41,6 +41,7 @@ func (i *IPSetIptables) Init(ctx context.Context) error {
 		return err
 	}
 	_ = run(ctx, "ipset", "flush", i.set)
+	i.cleanupCommand(ctx, "iptables", port, udpPort)
 	if err := i.initCommand(ctx, "iptables", i.set, port, udpPort); err != nil {
 		return err
 	}
@@ -49,6 +50,7 @@ func (i *IPSetIptables) Init(ctx context.Context) error {
 			return err
 		}
 		_ = run(ctx, "ipset", "flush", i.setV6)
+		i.cleanupCommand(ctx, "ip6tables", port, udpPort)
 		return i.initCommand(ctx, "ip6tables", i.setV6, port, udpPort)
 	}
 	return nil

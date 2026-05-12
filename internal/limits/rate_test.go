@@ -24,3 +24,19 @@ func TestRateLimiter(t *testing.T) {
 		t.Fatal("event after window should be allowed")
 	}
 }
+
+func TestRateLimiterCapacityLimit(t *testing.T) {
+	limiter, err := NewRateLimiterWithLimit("10/1m", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for _, key := range []string{"1", "2", "3"} {
+		if !limiter.Allow(key, now) {
+			t.Fatalf("Allow(%s) rejected", key)
+		}
+	}
+	if len(limiter.events) != 2 {
+		t.Fatalf("tracked keys = %d, want 2", len(limiter.events))
+	}
+}

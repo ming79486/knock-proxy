@@ -65,22 +65,22 @@ func (s *knockStore) removeOne(ip net.IP, clientID string, now time.Time) bool {
 	key := ip.String()
 	clients, ok := s.entries[key]
 	if !ok {
-		return true
+		return false
 	}
 	s.pruneIPLocked(key, now)
 	entry, ok := clients[clientID]
-	if ok {
-		entry.count--
-		if entry.count <= 0 {
-			delete(clients, clientID)
-		} else {
-			clients[clientID] = entry
-		}
+	if !ok {
+		return false
 	}
-	if len(clients) == 0 {
-		delete(s.entries, key)
+	entry.count--
+	if entry.count <= 0 {
+		delete(clients, clientID)
+		if len(clients) == 0 {
+			delete(s.entries, key)
+		}
 		return true
 	}
+	clients[clientID] = entry
 	return false
 }
 
@@ -90,24 +90,26 @@ func (s *knockStore) expire(ip net.IP, clientID string, now time.Time) bool {
 	key := ip.String()
 	clients, ok := s.entries[key]
 	if !ok {
-		return true
+		return false
 	}
 	entry, ok := clients[clientID]
-	if ok && !entry.expiresAt.After(now) {
-		delete(clients, clientID)
+	if !ok || entry.expiresAt.After(now) {
+		return false
 	}
-	s.pruneIPLocked(key, now)
+	delete(clients, clientID)
 	if len(clients) == 0 {
 		delete(s.entries, key)
-		return true
 	}
-	return false
+	return true
 }
 
-func (s *knockStore) removeIP(ip net.IP) {
+func (s *knockStore) removeIP(ip net.IP) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.entries, ip.String())
+	key := ip.String()
+	n := len(s.entries[key])
+	delete(s.entries, key)
+	return n
 }
 
 func (s *knockStore) consumeAny(ip net.IP, now time.Time) (string, bool, bool) {

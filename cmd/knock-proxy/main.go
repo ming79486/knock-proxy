@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	version = "1.2.3"
+	version = "1.2.4"
 	commit  = "unknown"
 	date    = "unknown"
 )
@@ -107,6 +107,8 @@ func runKnock(ctx context.Context, args []string) error {
 	fs.StringVar(&opts.Secret, "secret", "", "shared secret, preferably base64:<data>")
 	fs.StringVar(&opts.SecretFile, "secret-file", "", "path to shared secret file")
 	fs.StringVar(&opts.Method, "method", "", "knock method: tcp-syn, udp, or udp-passive; default is platform-aware")
+	fs.IntVar(&opts.UDPKnockPort, "udp-port", 0, "UDP knock port when it differs from --server TCP port")
+	fs.IntVar(&opts.ProtectedTCPPort, "protected-port", 0, "protected TCP port used in knock/auth HMAC when --server points at a different address/port")
 	fs.BoolVar(&opts.WaitOpen, "wait-open", false, "after knock, wait until the TCP port accepts connections")
 	fs.DurationVar(&opts.WaitOpenTimeout, "wait-open-timeout", 3*time.Second, "timeout for --wait-open")
 	if err := fs.Parse(args); err != nil {
@@ -198,6 +200,7 @@ Quick server:
 
 Other:
   knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key
+  knock-proxy knock --server example.com:443 --udp-port 8443 --protected-port 443 --client-id admin --secret-file ./secret.key --method udp
   knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key --wait-open
   knock-proxy probe --config ./client.yaml
   knock-proxy doctor --config ./server.yaml
