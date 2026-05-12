@@ -123,6 +123,73 @@ func buildSYNPacketIPv6(srcIP, dstIP net.IP, srcPort, dstPort int, fields auth.S
 	return packet, nil
 }
 
+func parseSYNPacket(frame []byte) (net.IP, int, auth.SYNFields, bool) {
+	if src, dst, fields, ok := parseSYNPacketIPv6(frame); ok {
+		return src, dst, fields, true
+	}
+	ipOff := findIPv4Offset(frame)
+	if ipOff < 0 || len(frame) < ipOff+20 {
+		return nil, 0, auth.SYNFields{}, false
+	}
+	ip := frame[ipOff:]
+	ihl := int(ip[0]&0x0f) * 4
+	if ihl < 20 || len(ip) < ihl {
+		return nil, 0, auth.SYNFields{}, false
+	}
+	total := int(binary.BigEndian.Uint16(ip[2:4]))
+	if total <= ihl || len(ip) < total {
+		total = len(ip)
+	}
+	if ip[9] != ipv4ProtocolTCP {
+		return nil, 0, auth.SYNFields{}, false
+	}
+	tcp := ip[ihl:total]
+	dst, fields, ok := parseSYNFieldsFromTCP(tcp)
+	if !ok {
+		return nil, 0, auth.SYNFields{}, false
+	}
+	return net.IPv4(ip[12], ip[13], ip[14], ip[15]).To4(), dst, fields, true
+}
+
+func parseSYNPacketIPv6(frame []byte) (net.IP, int, auth.SYNFields, bool) {
+	ipOff := findIPv6Offset(frame)
+	if ipOff < 0 || len(frame) < ipOff+40 {
+		return nil, 0, auth.SYNFields{}, false
+	}
+	ip := frame[ipOff:]
+	payloadLen := int(binary.BigEndian.Uint16(ip[4:6]))
+	if ip[6] != ipv4ProtocolTCP || payloadLen < 20 || len(ip) < 40+payloadLen {
+		return nil, 0, auth.SYNFields{}, false
+	}
+	dst, fields, ok := parseSYNFieldsFromTCP(ip[40 : 40+payloadLen])
+	if !ok {
+		return nil, 0, auth.SYNFields{}, false
+	}
+	src := make(net.IP, net.IPv6len)
+	copy(src, ip[8:24])
+	return src, dst, fields, true
+}
+
+func parseSYNFieldsFromTCP(tcp []byte) (int, auth.SYNFields, bool) {
+	if len(tcp) < 20 {
+		return 0, auth.SYNFields{}, false
+	}
+	flags := tcp[13]
+	if flags&tcpFlagSYN == 0 || flags&(tcpFlagACK|tcpFlagRST) != 0 {
+		return 0, auth.SYNFields{}, false
+	}
+	tcpHeaderLen := int(tcp[12]>>4) * 4
+	if tcpHeaderLen < 20 || len(tcp) < tcpHeaderLen {
+		return 0, auth.SYNFields{}, false
+	}
+	ts, ok := parseTimestamp(tcp[20:tcpHeaderLen])
+	if !ok {
+		return 0, auth.SYNFields{}, false
+	}
+	fields := auth.SYNFields{Sequence: binary.BigEndian.Uint32(tcp[4:8]), Window: binary.BigEndian.Uint16(tcp[14:16]), Timestamp: ts}
+	return int(binary.BigEndian.Uint16(tcp[2:4])), fields, true
+}
+
 func parseSYNKnock(frame []byte, dstPort int) (net.IP, auth.SYNFields, bool) {
 	if src, fields, ok := parseSYNKnockIPv6(frame, dstPort); ok {
 		return src, fields, true

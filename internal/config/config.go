@@ -336,7 +336,7 @@ func (c Config) ClientRuntime() (ClientRuntime, error) {
 	}
 	knockMethod := defaultString(c.Knock.Method, DefaultClientKnockMethod(runtime.GOOS))
 	if !isKnockMethod(knockMethod) {
-		return ClientRuntime{}, fmt.Errorf("unsupported client knock.method %q; expected tcp-syn, udp, udp-passive, or udp-seq", knockMethod)
+		return ClientRuntime{}, fmt.Errorf("unsupported client knock.method %q; expected tcp-syn, udp, udp-passive, udp-seq, udp-passive-seq, or tcp-syn-seq", knockMethod)
 	}
 	seq, err := parseSequence(c.Knock.Sequence, c.Knock.Replay)
 	if err != nil {
@@ -424,7 +424,7 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 	}
 	knockMethod := defaultString(c.Knock.Method, "tcp-syn")
 	if !isKnockMethod(knockMethod) {
-		return ServerRuntime{}, fmt.Errorf("unsupported server knock.method %q; expected tcp-syn, udp, udp-passive, or udp-seq", knockMethod)
+		return ServerRuntime{}, fmt.Errorf("unsupported server knock.method %q; expected tcp-syn, udp, udp-passive, udp-seq, udp-passive-seq, or tcp-syn-seq", knockMethod)
 	}
 	seq, err := parseSequence(c.Knock.Sequence, c.Knock.Replay)
 	if err != nil {
@@ -503,14 +503,14 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 	fw := c.Firewall
 	fw.Port = port
 	fw.UDPKnockPort = udpPort
-	if knockMethod == "udp-passive" {
+	if knockMethod == "udp-passive" || knockMethod == "udp-passive-seq" {
 		fw.DropUDPKnockPort = true
 	}
 	if (knockMethod == "udp" || knockMethod == "udp-seq") && fw.DropUDPKnockPort {
 		return ServerRuntime{}, errors.New("firewall.drop_udp_knock_port cannot be true with ordinary udp socket methods; use udp-passive or udp-passive-seq")
 	}
-	if knockMethod == "udp-passive" && fw.Backend == "script" {
-		return ServerRuntime{}, errors.New("knock.method udp-passive is incompatible with firewall.backend script because script cannot manage drop_udp_knock_port; use nftables, iptables, ipset-iptables, or udp mode")
+	if (knockMethod == "udp-passive" || knockMethod == "udp-passive-seq") && fw.Backend == "script" {
+		return ServerRuntime{}, errors.New("knock.method udp-passive/udp-passive-seq is incompatible with firewall.backend script because script cannot manage drop_udp_knock_port; use nftables, iptables, ipset-iptables, or udp mode")
 	}
 	if fw.Backend == "" {
 		fw.Backend = "auto"
@@ -767,7 +767,7 @@ func parseDurationDefault(v string, d time.Duration) (time.Duration, error) {
 }
 
 func isKnockMethod(method string) bool {
-	return method == "tcp-syn" || method == "udp" || method == "udp-passive" || method == "udp-seq"
+	return method == "tcp-syn" || method == "udp" || method == "udp-passive" || method == "udp-seq" || method == "udp-passive-seq" || method == "tcp-syn-seq"
 }
 
 func DefaultClientKnockMethod(goos string) string {

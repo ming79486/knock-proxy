@@ -8,11 +8,11 @@ import (
 )
 
 func CheckClientSupport(method string) error {
-	if method != "tcp-syn" {
+	if method != "tcp-syn" && method != "tcp-syn-seq" {
 		return nil
 	}
 	if os.Geteuid() == 0 || hasEffectiveCaps(13) {
 		return nil
 	}
-	return errors.New("tcp-syn knock requires CAP_NET_RAW or root; remediation: run as root, setcap cap_net_raw+ep on knock-proxy, or use systemd AmbientCapabilities=CAP_NET_RAW; switch knock.method to udp if raw packet injection is unavailable")
+	return errors.New("tcp-syn/tcp-syn-seq knock requires CAP_NET_RAW or root; remediation: run as root, setcap cap_net_raw+ep on knock-proxy, or use systemd AmbientCapabilities=CAP_NET_RAW; switch knock.method to udp if raw packet injection is unavailable")
 }

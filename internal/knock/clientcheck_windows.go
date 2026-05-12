@@ -5,7 +5,7 @@ package knock
 import "fmt"
 
 func CheckClientSupport(method string) error {
-	if method != "tcp-syn" {
+	if method != "tcp-syn" && method != "tcp-syn-seq" {
 		return nil
 	}
 	if windowsHasWinDivert() {

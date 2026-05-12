@@ -34,7 +34,7 @@ func RunServer(ctx context.Context, opts ServerOptions) error {
 	if opts.DryRun {
 		return printServerDryRun(ctx, rt)
 	}
-	if rt.KnockMethod == "tcp-syn" || rt.KnockMethod == "udp-passive" {
+	if rt.KnockMethod == "tcp-syn" || rt.KnockMethod == "tcp-syn-seq" || rt.KnockMethod == "udp-passive" || rt.KnockMethod == "udp-passive-seq" {
 		if err := knock.CheckServerPrivileges(); err != nil {
 			return err
 		}
@@ -108,6 +108,10 @@ func RunServer(ctx context.Context, opts ServerOptions) error {
 			knockErr <- knock.ListenUDPSequence(ctx, rt.UDPListen, listenOpts, state.handleKnock)
 		case "udp-passive":
 			knockErr <- knock.ListenUDPPassive(ctx, listenOpts, state.handleKnock)
+		case "udp-passive-seq":
+			knockErr <- knock.ListenUDPPassiveSequence(ctx, listenOpts, state.handleKnock)
+		case "tcp-syn-seq":
+			knockErr <- knock.ListenSYNSequence(ctx, listenOpts, state.handleKnock)
 		default:
 			knockErr <- fmt.Errorf("knock method %q is not implemented", rt.KnockMethod)
 		}
@@ -199,7 +203,7 @@ func printServerDryRun(ctx context.Context, rt config.ServerRuntime) error {
 	if rt.KnockMethod == "udp" || rt.KnockMethod == "udp-seq" {
 		fmt.Printf("knock.udp_listen: %s\n", rt.UDPListen)
 	}
-	if rt.KnockMethod == "udp-seq" {
+	if rt.KnockMethod == "udp-seq" || rt.KnockMethod == "udp-passive-seq" || rt.KnockMethod == "tcp-syn-seq" {
 		fmt.Printf("knock.sequence.length: %d\n", rt.SequenceLength)
 		fmt.Printf("knock.sequence.slot_seconds: %d\n", rt.SequenceSlot)
 		fmt.Printf("knock.sequence.window: %s\n", rt.SequenceWindow)

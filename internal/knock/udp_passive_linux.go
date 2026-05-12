@@ -15,6 +15,68 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func ListenUDPPassiveSequence(ctx context.Context, opts ListenOptions, handler Handler) error {
+	if opts.Port < 1 || opts.Port > 65535 {
+		return fmt.Errorf("invalid protected port %d", opts.Port)
+	}
+	knockPort := opts.KnockPort
+	if knockPort == 0 {
+		knockPort = opts.Port
+	}
+	if knockPort < 1 || knockPort > 65535 {
+		return fmt.Errorf("invalid udp knock port %d", knockPort)
+	}
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, int(htons(unix.ETH_P_ALL)))
+	if err != nil {
+		if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) {
+			return errors.New("udp-passive-seq server requires CAP_NET_ADMIN and CAP_NET_RAW, or must be run as root")
+		}
+		return err
+	}
+	defer unix.Close(fd)
+	go func() { <-ctx.Done(); _ = unix.Close(fd) }()
+	clients := make(map[string]auth.ClientSecret, len(opts.Clients))
+	for _, client := range opts.Clients {
+		clients[client.ClientID] = client
+	}
+	tracker := newSequenceTracker(opts.Sequence, opts.NonceTTL)
+	buf := make([]byte, 65535)
+	for {
+		n, _, err := unix.Recvfrom(fd, buf, 0)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if errors.Is(err, unix.EINTR) {
+				continue
+			}
+			return err
+		}
+		src, payload, ok := parseUDPKnockDatagram(buf[:n], knockPort)
+		if !ok || len(payload) > auth.MaxAuthFrameSize {
+			continue
+		}
+		if opts.AllowPacket != nil && !opts.AllowPacket(src) {
+			continue
+		}
+		var part auth.UDPSeqPart
+		if err := json.Unmarshal(payload, &part); err != nil {
+			continue
+		}
+		client, ok := clients[part.ClientID]
+		if !ok {
+			continue
+		}
+		complete, err := tracker.add(src, part, client.Secret, opts.Port, time.Now())
+		if err != nil {
+			continue
+		}
+		if complete {
+			handler(Event{SourceIP: src, ClientID: part.ClientID, Nonce: part.Nonce, Method: "udp-passive-seq", Parts: part.Total})
+		}
+	}
+}
+
 func ListenUDPPassive(ctx context.Context, opts ListenOptions, handler Handler) error {
 	if opts.TimeWindow <= 0 {
 		opts.TimeWindow = 30 * time.Second

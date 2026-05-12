@@ -71,6 +71,14 @@ func RunKnock(ctx context.Context, opts KnockOptions) error {
 	case "udp-passive":
 		sendOpts.ServerAddr = knockAddr
 		err = knock.SendUDPMethod(ctx, sendOpts, "udp-passive")
+	case "udp-seq", "udp-passive-seq":
+		sendOpts.ServerAddr = knockAddr
+		err = knock.SendUDPSequence(ctx, sendOpts)
+	case "tcp-syn-seq":
+		if err := knock.CheckClientSupport(method); err != nil {
+			return err
+		}
+		err = knock.SendSYNSequence(ctx, sendOpts)
 	default:
 		return fmt.Errorf("unsupported knock method %q", method)
 	}

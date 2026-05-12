@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -162,4 +163,49 @@ func hkdfSHA256(secret, salt, info []byte, outLen int) []byte {
 		counter++
 	}
 	return out[:outLen]
+}
+
+type SYNSeqPart struct {
+	Port   int
+	Fields SYNFields
+}
+
+func ComputeSYNSeqParts(secret []byte, clientID string, protectedPort int, slot int64, total int) []SYNSeqPart {
+	if total < 2 || total > 5 {
+		total = 3
+	}
+	out := make([]SYNSeqPart, total)
+	for i := range out {
+		mac := hmac.New(sha256.New, secret)
+		mac.Write([]byte("knock-proxy/tcp-syn-seq/v1"))
+		writeString(mac, clientID)
+		writeUint16(mac, uint16(protectedPort))
+		writeInt64(mac, slot)
+		writeUint16(mac, uint16(i))
+		tag := mac.Sum(nil)
+		port := 1024 + int(binary.BigEndian.Uint16(tag[0:2])%64511)
+		window := binary.BigEndian.Uint16(tag[6:8])
+		if window == 0 {
+			window = 1
+		}
+		out[i] = SYNSeqPart{Port: port, Fields: SYNFields{Sequence: binary.BigEndian.Uint32(tag[2:6]), Window: window, Timestamp: binary.BigEndian.Uint32(tag[8:12])}}
+	}
+	return out
+}
+
+func VerifySYNSeqPart(fields SYNFields, dstPort int, clients []ClientSecret, protectedPort int, now time.Time, slotSeconds, total, index int) (string, int64, bool) {
+	if slotSeconds <= 0 {
+		slotSeconds = 30
+	}
+	current := now.Unix() / int64(slotSeconds)
+	for _, client := range clients {
+		for _, delta := range []int64{-1, 0, 1} {
+			slot := current + delta
+			parts := ComputeSYNSeqParts(client.Secret, client.ClientID, protectedPort, slot, total)
+			if index >= 0 && index < len(parts) && parts[index].Port == dstPort && parts[index].Fields == fields {
+				return client.ClientID, slot, true
+			}
+		}
+	}
+	return "", 0, false
 }
