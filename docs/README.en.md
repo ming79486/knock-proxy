@@ -28,7 +28,7 @@ Local application
 - `server --dry-run`
 - proxy / direct access modes
 - TCP SYN knock, UDP knock, and udp-passive knock
-- Windows TCP-SYN knock: experimental, WinDivert preferred, Npcap fallback; UDP is recommended for fleets
+- Windows TCP-SYN knock: experimental, WinDivert (https://github.com/basil00/WinDivert/) preferred, Npcap fallback; UDP is recommended for fleets
 - HMAC-SHA256 second-stage authentication
 - Timestamp + nonce replay protection for UDP knock/TCP auth; time-slot HMAC for TCP SYN knock
 - ChaCha20-Poly1305 basic transport encryption
@@ -103,7 +103,7 @@ Matching server configuration:
 sudo ./knock-proxy server --config ./examples/server.udp.yaml
 ```
 
-Windows TCP-SYN knock prefers WinDivert. Place `WinDivert.dll` next to `knock-proxy.exe`, or under a `WinDivert/` subdirectory, and run as administrator. If WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
+Windows TCP-SYN knock prefers WinDivert (https://github.com/basil00/WinDivert/). Place `WinDivert.dll` next to `knock-proxy.exe`, or under a `WinDivert/` subdirectory, and run as administrator. If WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
 
 ## More Documentation
 

@@ -30,7 +30,7 @@ Windows clients can use `udp` knock, and since v1.2.1 can also use `tcp-syn` kno
 .\knock-proxy.exe client --config .\examples\client.windows.yaml
 ```
 
-Windows `tcp-syn` mode is available since v1.2.1 but should be treated as experimental. WinDivert is recommended: place `WinDivert.dll` next to `knock-proxy.exe` or in a `WinDivert/` subdirectory, and run as administrator. If WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
+Windows `tcp-syn` mode is available since v1.2.1 but should be treated as experimental. WinDivert is recommended (https://github.com/basil00/WinDivert/): place `WinDivert.dll` next to `knock-proxy.exe` or in a `WinDivert/` subdirectory, and run as administrator. If WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
 
 
 ## direct Mode

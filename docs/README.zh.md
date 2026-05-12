@@ -28,7 +28,7 @@
 - `server --dry-run`
 - proxy / direct 访问模式
 - TCP SYN knock、UDP knock、udp-passive knock
-- Windows TCP-SYN knock：experimental，优先 WinDivert，未找到时回退 Npcap；批量部署推荐 UDP
+- Windows TCP-SYN knock：experimental，优先 WinDivert（https://github.com/basil00/WinDivert/），未找到时回退 Npcap；批量部署推荐 UDP
 - HMAC-SHA256 二次认证
 - UDP knock/TCP auth 使用 timestamp + nonce 防重放；TCP SYN knock 使用 time-slot HMAC
 - ChaCha20-Poly1305 基础传输加密
@@ -103,7 +103,7 @@ Windows 可使用 UDP knock：
 sudo ./knock-proxy server --config ./examples/server.udp.yaml
 ```
 
-Windows TCP-SYN knock 推荐使用 WinDivert。把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录或 `WinDivert/` 子目录，并以管理员权限运行。没有 WinDivert 时会回退到 Npcap `Packet.dll`。
+Windows TCP-SYN knock 推荐使用 WinDivert（https://github.com/basil00/WinDivert/）。把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录或 `WinDivert/` 子目录，并以管理员权限运行。没有 WinDivert 时会回退到 Npcap `Packet.dll`。
 
 ## 更多文档
 

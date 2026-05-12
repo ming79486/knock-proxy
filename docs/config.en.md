@@ -57,7 +57,7 @@ Direct mode must keep `require_tcp_auth: false` and cannot enable `transport.enc
 
 | Field | Default | Description |
 | --- | --- | --- |
-| `method` | server/Linux client `tcp-syn`, Windows/macOS client `udp` | Supports `tcp-syn`, `udp`, or `udp-passive`. Windows clients use `udp` by default; Windows `tcp-syn` is available since v1.2.1, preferring WinDivert and falling back to Npcap when WinDivert is unavailable. |
+| `method` | server/Linux client `tcp-syn`, Windows/macOS client `udp` | Supports `tcp-syn`, `udp`, or `udp-passive`. Windows clients use `udp` by default; Windows `tcp-syn` is available since v1.2.1, preferring WinDivert (https://github.com/basil00/WinDivert/) and falling back to Npcap when WinDivert is unavailable. |
 | `udp_listen` | TCP listen port | Normal UDP socket listen address for `udp` mode. `udp-passive` does not create a normal UDP socket. |
 | `udp_knock_port` | TCP listen port | UDP knock port. Legacy `udp_port` is still accepted. On clients, UDP knocks go to this port while HMAC remains bound to `protected_tcp_port` or the TCP port in `client.server_addr`. |
 | `log_invalid_knock` | `false` | Log invalid UDP knock packets when diagnostics are needed. Invalid UDP knocks are otherwise dropped silently. |
@@ -67,7 +67,7 @@ Direct mode must keep `require_tcp_auth: false` and cannot enable `transport.enc
 
 UDP knock note: the TCP port should still appear `filtered`; the UDP port may appear `open|filtered` in UDP scans, which is expected for a UDP socket that silently drops invalid packets.
 
-Windows client note: when `knock.method` is omitted, client mode defaults to `udp`. Windows `tcp-syn` mode is experimental. WinDivert is recommended: place `WinDivert.dll` next to `knock-proxy.exe` or in a `WinDivert/` subdirectory, and run as administrator. If WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
+Windows client note: when `knock.method` is omitted, client mode defaults to `udp`. Windows `tcp-syn` mode is experimental. WinDivert is recommended (https://github.com/basil00/WinDivert/): place `WinDivert.dll` next to `knock-proxy.exe` or in a `WinDivert/` subdirectory, and run as administrator. If WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
 
 `udp-passive` note: server-side support is Linux-only. It captures UDP knock packets through AF_PACKET and does not create a normal UDP socket. When enabled, the server automatically enables `firewall.drop_udp_knock_port` so the firewall drops `knock.udp_knock_port`, while valid knocks are still recognized by passive capture. This mode requires root or `CAP_NET_ADMIN` + `CAP_NET_RAW` on the server. IPv6 UDP knock parsing currently handles packets without IPv6 extension headers.
 
@@ -203,7 +203,7 @@ The authentication frame remains plaintext JSON and is HMAC-protected. Applicati
 - Prefer a loopback client listener. If `0.0.0.0` or a public address is explicitly used, make sure the local firewall restricts access.
 - No higher-priority firewall ACCEPT rule bypasses DROP.
 - Server has root or `CAP_NET_ADMIN` + `CAP_NET_RAW` in `tcp-syn` or `udp-passive` mode.
-- Linux clients need root or `CAP_NET_RAW` in `tcp-syn` mode. Windows clients use `udp` by default; Windows `tcp-syn` prefers WinDivert, falls back to Npcap, and requires administrator privileges. `udp` / `udp-passive` clients do not need raw sockets.
+- Linux clients need root or `CAP_NET_RAW` in `tcp-syn` mode. Windows clients use `udp` by default; Windows `tcp-syn` prefers WinDivert (https://github.com/basil00/WinDivert/), falls back to Npcap, and requires administrator privileges. `udp` / `udp-passive` clients do not need raw sockets.
 
 ## Security Notes and State Machine
 

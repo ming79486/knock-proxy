@@ -57,7 +57,7 @@ direct 模式必须保持 `require_tcp_auth: false`，且不能启用 `transport
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `method` | 服务端/Linux 客户端 `tcp-syn`，Windows/macOS 客户端 `udp` | 支持 `tcp-syn`、`udp` 或 `udp-passive`。Windows 默认使用 `udp`；Windows `tcp-syn` 在 v1.2.1 起可用，推荐 WinDivert，未找到 WinDivert 时回退 Npcap。 |
+| `method` | 服务端/Linux 客户端 `tcp-syn`，Windows/macOS 客户端 `udp` | 支持 `tcp-syn`、`udp` 或 `udp-passive`。Windows 默认使用 `udp`；Windows `tcp-syn` 在 v1.2.1 起可用，推荐 WinDivert（https://github.com/basil00/WinDivert/），未找到 WinDivert 时回退 Npcap。 |
 | `udp_listen` | 使用 TCP 监听端口 | `udp` 模式的普通 socket 监听地址；`udp-passive` 不创建普通 UDP socket。 |
 | `udp_knock_port` | 使用 TCP 监听端口 | UDP knock 端口；兼容旧字段 `udp_port`。客户端会向该端口发送 UDP knock，但 HMAC 绑定到 `protected_tcp_port` 或 `client.server_addr` 中的 TCP 端口。 |
 | `log_invalid_knock` | `false` | 排障时记录非法 UDP knock 包；默认静默丢弃非法 UDP knock。 |
@@ -67,7 +67,7 @@ direct 模式必须保持 `require_tcp_auth: false`，且不能启用 `transport
 
 UDP knock 说明：TCP 端口仍应显示 `filtered`；UDP 端口在 UDP 扫描下可能显示 `open|filtered`，这是普通 UDP socket 静默丢弃错误包的预期表现。
 
-Windows 客户端说明：如果未显式配置 `knock.method`，客户端默认使用 `udp`。Windows `tcp-syn` 模式为 experimental，推荐把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录或 `WinDivert/` 子目录，并以管理员权限运行；未找到 WinDivert 时会回退到 Npcap `Packet.dll`。
+Windows 客户端说明：如果未显式配置 `knock.method`，客户端默认使用 `udp`。Windows `tcp-syn` 模式为 experimental，推荐从 https://github.com/basil00/WinDivert/ 获取 WinDivert，并把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录或 `WinDivert/` 子目录，并以管理员权限运行；未找到 WinDivert 时会回退到 Npcap `Packet.dll`。
 
 `udp-passive` 说明：服务端只在 Linux 上可用，通过 AF_PACKET 旁路捕获 UDP knock，不创建普通 UDP socket。启用后服务端会自动开启 `firewall.drop_udp_knock_port`，让防火墙 DROP `knock.udp_knock_port`，合法 knock 仍由旁路捕获识别。该模式要求服务端有 root 或 `CAP_NET_ADMIN` + `CAP_NET_RAW`。IPv6 UDP knock 当前只处理无 IPv6 扩展头的数据包。
 
@@ -203,7 +203,7 @@ IPv6 ipset 依赖 `ip6tables`。
 - 客户端监听地址建议使用 loopback；如显式使用 `0.0.0.0` 或公网地址，确认本机防火墙已限制访问。
 - 服务端防火墙没有更高优先级 ACCEPT 绕过 DROP。
 - 服务端在 `tcp-syn` 或 `udp-passive` 模式下有 root 或 `CAP_NET_ADMIN` + `CAP_NET_RAW`。
-- Linux 客户端在 `tcp-syn` 模式下有 root 或 `CAP_NET_RAW`；Windows 客户端默认使用 `udp`；Windows `tcp-syn` 推荐 WinDivert，未找到 WinDivert 时回退 Npcap，并需要管理员权限；`udp` / `udp-passive` 客户端不需要 raw socket。
+- Linux 客户端在 `tcp-syn` 模式下有 root 或 `CAP_NET_RAW`；Windows 客户端默认使用 `udp`；Windows `tcp-syn` 推荐 WinDivert（https://github.com/basil00/WinDivert/），未找到 WinDivert 时回退 Npcap，并需要管理员权限；`udp` / `udp-passive` 客户端不需要 raw socket。
 
 ## 安全说明与状态机
 
@@ -212,7 +212,7 @@ IPv6 ipset 依赖 `ip6tables`。
 - `direct` 没有 TCP HMAC 二次认证。状态机是：knock 通过 -> 防火墙临时放行 -> 第一次真实 TCP 连接 -> revoke。只建议用于低风险或受控网络。
 - UDP knock 和 TCP auth 都带 nonce，并由 nonce cache 防重放。TCP SYN knock 没有 nonce，它是编码在 SYN 字段里的 time-slot HMAC，抗重放能力受时间窗口限制。
 - `udp-passive` 需要能 DROP UDP knock 端口的防火墙后端。`script` 后端会在配置/运行时校验阶段被拒绝，因为程序无法安全管理这条 DROP 规则。
-- Windows TCP-SYN knock 依赖 WinDivert/Npcap，环境不确定性高，标记为 experimental；Windows 批量部署默认推荐 UDP。macOS TCP-SYN 当前代码未实现，请使用 UDP。
+- Windows TCP-SYN knock 依赖 WinDivert（https://github.com/basil00/WinDivert/）/Npcap，环境不确定性高，标记为 experimental；Windows 批量部署默认推荐 UDP。macOS TCP-SYN 当前代码未实现，请使用 UDP。
 - 程序不记录 secret 或完整 auth/knock payload。生产环境建议保持 `info` 或 `warn`，仅排障时临时打开 `debug`。
 
 ## 运维说明
