@@ -58,15 +58,33 @@ type AccessConfig struct {
 }
 
 type KnockConfig struct {
-	Method            string `yaml:"method"`
-	UDPListen         string `yaml:"udp_listen"`
-	UDPPort           int    `yaml:"udp_port"`
-	UDPKnockPort      int    `yaml:"udp_knock_port"`
-	LogInvalidKnock   bool   `yaml:"log_invalid_knock"`
-	SilentDropInvalid bool   `yaml:"silent_drop_invalid"`
-	TimeoutSeconds    int    `yaml:"timeout_seconds"`
-	Retry             int    `yaml:"retry"`
-	TimeWindowSeconds int    `yaml:"time_window_seconds"`
+	Method            string         `yaml:"method"`
+	UDPListen         string         `yaml:"udp_listen"`
+	UDPPort           int            `yaml:"udp_port"`
+	UDPKnockPort      int            `yaml:"udp_knock_port"`
+	LogInvalidKnock   bool           `yaml:"log_invalid_knock"`
+	SilentDropInvalid bool           `yaml:"silent_drop_invalid"`
+	TimeoutSeconds    int            `yaml:"timeout_seconds"`
+	Retry             int            `yaml:"retry"`
+	TimeWindowSeconds int            `yaml:"time_window_seconds"`
+	Sequence          SequenceConfig `yaml:"sequence"`
+	Replay            ReplayConfig   `yaml:"replay"`
+}
+
+type SequenceConfig struct {
+	Length           int    `yaml:"length"`
+	SlotSeconds      int    `yaml:"slot_seconds"`
+	Window           string `yaml:"window"`
+	PacketInterval   string `yaml:"packet_interval"`
+	MaxJitter        string `yaml:"max_jitter"`
+	AllowReorder     bool   `yaml:"allow_reorder"`
+	MaxInflightPerIP int    `yaml:"max_inflight_per_ip"`
+	MaxTotalInflight int    `yaml:"max_total_inflight"`
+	GCInterval       string `yaml:"gc_interval"`
+}
+
+type ReplayConfig struct {
+	NonceTTL string `yaml:"nonce_ttl"`
 }
 
 type AuthConfig struct {
@@ -164,6 +182,10 @@ type ClientRuntime struct {
 	KnockRetry         int
 	KnockMethod        string
 	KnockTimeWindow    time.Duration
+	SequenceLength     int
+	SequenceSlot       int
+	SequenceInterval   time.Duration
+	SequenceJitter     time.Duration
 	ConnectTimeout     time.Duration
 	AuthTimeout        time.Duration
 	IdleTimeout        time.Duration
@@ -187,6 +209,16 @@ type ServerRuntime struct {
 	UDPListen               string
 	UDPPort                 int
 	KnockTimeWindow         time.Duration
+	SequenceLength          int
+	SequenceSlot            int
+	SequenceWindow          time.Duration
+	SequencePacketInterval  time.Duration
+	SequenceMaxJitter       time.Duration
+	SequenceAllowReorder    bool
+	SequenceMaxInflightIP   int
+	SequenceMaxInflight     int
+	SequenceGCInterval      time.Duration
+	SequenceNonceTTL        time.Duration
 	AuthTimeWindow          time.Duration
 	NonceCacheTTL           time.Duration
 	Firewall                FirewallConfig
@@ -242,6 +274,8 @@ func DefaultConfig() Config {
 			TimeoutSeconds:    3,
 			Retry:             2,
 			TimeWindowSeconds: 30,
+			Sequence:          SequenceConfig{Length: 3, SlotSeconds: 30, Window: "10s", PacketInterval: "80ms", MaxJitter: "0ms", MaxInflightPerIP: 8, MaxTotalInflight: 4096, GCInterval: "2s"},
+			Replay:            ReplayConfig{NonceTTL: "2m"},
 		},
 		Access: AccessConfig{
 			Mode:                    "proxy",
@@ -302,7 +336,11 @@ func (c Config) ClientRuntime() (ClientRuntime, error) {
 	}
 	knockMethod := defaultString(c.Knock.Method, DefaultClientKnockMethod(runtime.GOOS))
 	if !isKnockMethod(knockMethod) {
-		return ClientRuntime{}, fmt.Errorf("unsupported client knock.method %q; expected tcp-syn, udp, or udp-passive", knockMethod)
+		return ClientRuntime{}, fmt.Errorf("unsupported client knock.method %q; expected tcp-syn, udp, udp-passive, or udp-seq", knockMethod)
+	}
+	seq, err := parseSequence(c.Knock.Sequence, c.Knock.Replay)
+	if err != nil {
+		return ClientRuntime{}, err
 	}
 	if err := validateTransport(c.Transport); err != nil {
 		return ClientRuntime{}, err
@@ -365,6 +403,10 @@ func (c Config) ClientRuntime() (ClientRuntime, error) {
 		KnockRetry:         defaultInt(c.Knock.Retry, 2),
 		KnockMethod:        knockMethod,
 		KnockTimeWindow:    seconds(defaultInt(c.Knock.TimeWindowSeconds, 30)),
+		SequenceLength:     seq.length,
+		SequenceSlot:       seq.slotSeconds,
+		SequenceInterval:   seq.packetInterval,
+		SequenceJitter:     seq.maxJitter,
 		ConnectTimeout:     seconds(defaultInt(c.Timeouts.ConnectSeconds, 5)),
 		AuthTimeout:        seconds(defaultInt(c.Timeouts.AuthSeconds, 5)),
 		IdleTimeout:        seconds(defaultInt(c.Timeouts.IdleSeconds, 300)),
@@ -382,7 +424,11 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 	}
 	knockMethod := defaultString(c.Knock.Method, "tcp-syn")
 	if !isKnockMethod(knockMethod) {
-		return ServerRuntime{}, fmt.Errorf("unsupported server knock.method %q; expected tcp-syn, udp, or udp-passive", knockMethod)
+		return ServerRuntime{}, fmt.Errorf("unsupported server knock.method %q; expected tcp-syn, udp, udp-passive, or udp-seq", knockMethod)
+	}
+	seq, err := parseSequence(c.Knock.Sequence, c.Knock.Replay)
+	if err != nil {
+		return ServerRuntime{}, err
 	}
 	accessMode := defaultString(c.Access.Mode, "proxy")
 	if accessMode != "proxy" && accessMode != "direct" {
@@ -460,8 +506,8 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 	if knockMethod == "udp-passive" {
 		fw.DropUDPKnockPort = true
 	}
-	if knockMethod == "udp" && fw.DropUDPKnockPort {
-		return ServerRuntime{}, errors.New("firewall.drop_udp_knock_port cannot be true with knock.method udp; use udp-passive")
+	if (knockMethod == "udp" || knockMethod == "udp-seq") && fw.DropUDPKnockPort {
+		return ServerRuntime{}, errors.New("firewall.drop_udp_knock_port cannot be true with ordinary udp socket methods; use udp-passive or udp-passive-seq")
 	}
 	if knockMethod == "udp-passive" && fw.Backend == "script" {
 		return ServerRuntime{}, errors.New("knock.method udp-passive is incompatible with firewall.backend script because script cannot manage drop_udp_knock_port; use nftables, iptables, ipset-iptables, or udp mode")
@@ -492,6 +538,16 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 		UDPListen:               udpListen,
 		UDPPort:                 udpPort,
 		KnockTimeWindow:         seconds(defaultInt(c.Knock.TimeWindowSeconds, 30)),
+		SequenceLength:          seq.length,
+		SequenceSlot:            seq.slotSeconds,
+		SequenceWindow:          seq.window,
+		SequencePacketInterval:  seq.packetInterval,
+		SequenceMaxJitter:       seq.maxJitter,
+		SequenceAllowReorder:    seq.allowReorder,
+		SequenceMaxInflightIP:   seq.maxInflightPerIP,
+		SequenceMaxInflight:     seq.maxTotalInflight,
+		SequenceGCInterval:      seq.gcInterval,
+		SequenceNonceTTL:        seq.nonceTTL,
 		AuthTimeWindow:          seconds(defaultInt(c.Auth.TimeWindowSeconds, 30)),
 		NonceCacheTTL:           seconds(defaultInt(c.Auth.NonceCacheSeconds, 300)),
 		Firewall:                fw,
@@ -655,8 +711,63 @@ func defaultString(v, fallback string) string {
 	return v
 }
 
+type sequenceRuntime struct {
+	length           int
+	slotSeconds      int
+	window           time.Duration
+	packetInterval   time.Duration
+	maxJitter        time.Duration
+	allowReorder     bool
+	maxInflightPerIP int
+	maxTotalInflight int
+	gcInterval       time.Duration
+	nonceTTL         time.Duration
+}
+
+func parseSequence(s SequenceConfig, r ReplayConfig) (sequenceRuntime, error) {
+	length := defaultInt(s.Length, 3)
+	if length < 2 || length > 5 {
+		return sequenceRuntime{}, fmt.Errorf("knock.sequence.length must be between 2 and 5")
+	}
+	slot := defaultInt(s.SlotSeconds, 30)
+	if slot < 5 {
+		return sequenceRuntime{}, fmt.Errorf("knock.sequence.slot_seconds must be at least 5")
+	}
+	window, err := parseDurationDefault(s.Window, 10*time.Second)
+	if err != nil {
+		return sequenceRuntime{}, fmt.Errorf("knock.sequence.window: %w", err)
+	}
+	interval, err := parseDurationDefault(s.PacketInterval, 80*time.Millisecond)
+	if err != nil {
+		return sequenceRuntime{}, fmt.Errorf("knock.sequence.packet_interval: %w", err)
+	}
+	jitter, err := parseDurationDefault(s.MaxJitter, 0)
+	if err != nil {
+		return sequenceRuntime{}, fmt.Errorf("knock.sequence.max_jitter: %w", err)
+	}
+	gc, err := parseDurationDefault(s.GCInterval, 2*time.Second)
+	if err != nil {
+		return sequenceRuntime{}, fmt.Errorf("knock.sequence.gc_interval: %w", err)
+	}
+	nonce, err := parseDurationDefault(r.NonceTTL, 2*time.Minute)
+	if err != nil {
+		return sequenceRuntime{}, fmt.Errorf("knock.replay.nonce_ttl: %w", err)
+	}
+	if nonce <= window {
+		return sequenceRuntime{}, fmt.Errorf("knock.replay.nonce_ttl must be greater than knock.sequence.window")
+	}
+	return sequenceRuntime{length: length, slotSeconds: slot, window: window, packetInterval: interval, maxJitter: jitter, allowReorder: s.AllowReorder, maxInflightPerIP: defaultInt(s.MaxInflightPerIP, 8), maxTotalInflight: defaultInt(s.MaxTotalInflight, 4096), gcInterval: gc, nonceTTL: nonce}, nil
+}
+
+func parseDurationDefault(v string, d time.Duration) (time.Duration, error) {
+	if v == "" {
+		return d, nil
+	}
+	return time.ParseDuration(v)
+}
+
 func isKnockMethod(method string) bool {
-	return method == "tcp-syn" || method == "udp" || method == "udp-passive"
+	return method == "tcp-syn" || method == "udp" || method == "udp-passive" || method == "udp-seq"
 }
 
 func DefaultClientKnockMethod(goos string) string {

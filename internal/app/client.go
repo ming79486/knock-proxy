@@ -150,7 +150,7 @@ func sendKnock(parent context.Context, rt config.ClientRuntime) error {
 	for i := 0; i < attempts; i++ {
 		ctx, cancel := context.WithTimeout(parent, rt.KnockTimeout)
 		serverAddr := rt.ServerAddr
-		if rt.KnockMethod == "udp" || rt.KnockMethod == "udp-passive" {
+		if rt.KnockMethod == "udp" || rt.KnockMethod == "udp-passive" || rt.KnockMethod == "udp-seq" {
 			serverAddr = rt.UDPServerAddr
 		}
 		sendOpts := knock.SendOptions{
@@ -159,6 +159,9 @@ func sendKnock(parent context.Context, rt config.ClientRuntime) error {
 			Secret:     rt.Secret,
 			ServerPort: rt.ServerPort,
 			TimeWindow: rt.KnockTimeWindow,
+			Sequence: knock.SequenceOptions{
+				Length: rt.SequenceLength, SlotSeconds: rt.SequenceSlot, PacketInterval: rt.SequenceInterval, MaxJitter: rt.SequenceJitter,
+			},
 		}
 		var err error
 		switch rt.KnockMethod {
@@ -166,6 +169,8 @@ func sendKnock(parent context.Context, rt config.ClientRuntime) error {
 			err = knock.SendUDPMethod(ctx, sendOpts, "udp")
 		case "udp-passive":
 			err = knock.SendUDPMethod(ctx, sendOpts, "udp-passive")
+		case "udp-seq":
+			err = knock.SendUDPSequence(ctx, sendOpts)
 		default:
 			if supportErr := knock.CheckClientSupport(rt.KnockMethod); supportErr != nil {
 				err = supportErr

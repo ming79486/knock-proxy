@@ -14,6 +14,8 @@ type Event struct {
 	SourceIP net.IP
 	ClientID string
 	Nonce    string
+	Method   string
+	Parts    int
 }
 
 type ListenOptions struct {
@@ -23,6 +25,8 @@ type ListenOptions struct {
 	TimeWindow    time.Duration
 	AllowPacket   func(net.IP) bool
 	InvalidPacket func(net.IP, string)
+	Sequence      SequenceOptions
+	NonceTTL      time.Duration
 }
 
 type SendOptions struct {
@@ -31,6 +35,7 @@ type SendOptions struct {
 	Secret     []byte
 	ServerPort int
 	TimeWindow time.Duration
+	Sequence   SequenceOptions
 }
 
 type Handler func(Event)

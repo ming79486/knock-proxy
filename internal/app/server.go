@@ -94,12 +94,18 @@ func RunServer(ctx context.Context, opts ServerOptions) error {
 			TimeWindow:    rt.KnockTimeWindow,
 			AllowPacket:   state.allowKnockPacket,
 			InvalidPacket: state.invalidKnockPacket,
+			Sequence: knock.SequenceOptions{
+				Length: rt.SequenceLength, SlotSeconds: rt.SequenceSlot, Window: rt.SequenceWindow, PacketInterval: rt.SequencePacketInterval, MaxJitter: rt.SequenceMaxJitter, AllowReorder: rt.SequenceAllowReorder, MaxInflightPerIP: rt.SequenceMaxInflightIP, MaxTotalInflight: rt.SequenceMaxInflight,
+			},
+			NonceTTL: rt.SequenceNonceTTL,
 		}
 		switch rt.KnockMethod {
 		case "tcp-syn":
 			knockErr <- knock.Listen(ctx, listenOpts, state.handleKnock)
 		case "udp":
 			knockErr <- knock.ListenUDP(ctx, rt.UDPListen, listenOpts, state.handleKnock)
+		case "udp-seq":
+			knockErr <- knock.ListenUDPSequence(ctx, rt.UDPListen, listenOpts, state.handleKnock)
 		case "udp-passive":
 			knockErr <- knock.ListenUDPPassive(ctx, listenOpts, state.handleKnock)
 		default:
@@ -190,8 +196,13 @@ func printServerDryRun(ctx context.Context, rt config.ServerRuntime) error {
 	fmt.Printf("upstream: %s\n", rt.Upstream)
 	fmt.Printf("access.mode: %s\n", rt.AccessMode)
 	fmt.Printf("knock.method: %s\n", rt.KnockMethod)
-	if rt.KnockMethod == "udp" {
+	if rt.KnockMethod == "udp" || rt.KnockMethod == "udp-seq" {
 		fmt.Printf("knock.udp_listen: %s\n", rt.UDPListen)
+	}
+	if rt.KnockMethod == "udp-seq" {
+		fmt.Printf("knock.sequence.length: %d\n", rt.SequenceLength)
+		fmt.Printf("knock.sequence.slot_seconds: %d\n", rt.SequenceSlot)
+		fmt.Printf("knock.sequence.window: %s\n", rt.SequenceWindow)
 	}
 	if rt.KnockMethod == "udp-passive" {
 		fmt.Printf("knock.udp_knock_port: %d\n", rt.UDPPort)
@@ -223,7 +234,7 @@ func validateRuntimeStartup(ctx context.Context, rt config.ServerRuntime, checkU
 		return fmt.Errorf("tcp listen address unavailable %s: %w; remediation: choose a free address/port or stop the existing listener", rt.Listen, err)
 	}
 	_ = ln.Close()
-	if rt.KnockMethod == "udp" {
+	if rt.KnockMethod == "udp" || rt.KnockMethod == "udp-seq" {
 		pc, err := net.ListenPacket("udp", rt.UDPListen)
 		if err != nil {
 			return fmt.Errorf("udp knock listen address unavailable %s: %w; remediation: choose a free udp_knock_port/udp_listen", rt.UDPListen, err)
@@ -337,12 +348,11 @@ func (s *serverState) handleKnock(ev knock.Event) {
 		knockConnections = s.rt.MaxConnectionsPerKnock
 	}
 	s.knocks.add(ev.SourceIP, ev.ClientID, s.rt.AllowTTL, now, knockConnections)
-	s.log.Event("knock accepted",
-		logging.F("src", ev.SourceIP),
-		logging.F("client_id", ev.ClientID),
-		logging.F("ttl", s.rt.AllowTTL.String()),
-		logging.F("backend", s.fw.Name()),
-	)
+	fields := []logging.Field{logging.F("src", ev.SourceIP), logging.F("client_id", ev.ClientID), logging.F("ttl", s.rt.AllowTTL.String()), logging.F("backend", s.fw.Name())}
+	if ev.Method != "" {
+		fields = append(fields, logging.F("method", ev.Method), logging.F("parts", ev.Parts))
+	}
+	s.log.Event("knock accepted", fields...)
 	s.metrics.Inc("knock_proxy_knock_accepted_total", nil)
 	s.metrics.AddGauge("knock_proxy_active_allow_entries", nil, 1)
 
