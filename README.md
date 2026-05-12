@@ -245,3 +245,8 @@ Windows TCP-SYN knock is experimental. Download WinDivert from https://github.co
 ```
 
 If WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
+
+
+## License
+
+This project is licensed under the Elastic License 2.0. See [LICENSE](LICENSE).

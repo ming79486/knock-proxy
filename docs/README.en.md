@@ -109,3 +109,8 @@ Windows TCP-SYN knock prefers WinDivert (https://github.com/basil00/WinDivert/).
 
 - [Configuration Reference](config.en.md)
 - [Deployment And Acceptance](deployment.en.md)
+
+
+## License
+
+This project is licensed under the Elastic License 2.0. See [LICENSE](LICENSE).

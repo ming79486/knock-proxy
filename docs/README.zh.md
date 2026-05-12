@@ -109,3 +109,8 @@ Windows TCP-SYN knock 推荐使用 WinDivert（https://github.com/basil00/WinDiv
 
 - [配置说明](config.zh.md)
 - [部署与验收](deployment.zh.md)
+
+
+## License
+
+This project is licensed under the Elastic License 2.0. See [LICENSE](LICENSE).
