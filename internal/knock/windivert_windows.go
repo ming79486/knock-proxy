@@ -15,24 +15,14 @@ import (
 const (
 	windivertLayerNetwork = 0
 	windivertFlagSendOnly = 0x00000800
+	windivertAddrOutbound = 1 << 17
 )
 
 type windivertAddress struct {
-	Timestamp   int64
-	Layer       uint8
-	Event       uint8
-	Sniffed     uint8
-	Outbound    uint8
-	Loopback    uint8
-	Impostor    uint8
-	IPv6        uint8
-	IPChecksum  uint8
-	TCPChecksum uint8
-	UDPChecksum uint8
-	_           [5]byte
-	IfIdx       uint32
-	SubIfIdx    uint32
-	Data        [8]uint64
+	Timestamp int64
+	Flags     uint32
+	Reserved  uint32
+	Data      [8]uint64
 }
 
 var (
@@ -84,7 +74,7 @@ func windowsSendIPPacketWinDivert(packet []byte) error {
 	}
 	defer procWinDivertClose.Call(handle)
 
-	addr := windivertAddress{Layer: windivertLayerNetwork, Outbound: 1}
+	addr := windivertAddress{Flags: windivertLayerNetwork | windivertAddrOutbound}
 	if procWinDivertHelperCalcChecksums.Find() == nil {
 		_, _, _ = procWinDivertHelperCalcChecksums.Call(uintptr(unsafe.Pointer(&packet[0])), uintptr(uint32(len(packet))), uintptr(unsafe.Pointer(&addr)), 0)
 	}

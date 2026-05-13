@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/ming79486/knock-proxy/internal/auth"
@@ -213,7 +214,9 @@ func (t *synSeqTracker) prune(now time.Time) {
 	for key, st := range t.states {
 		if now.Sub(st.firstSeen) > t.opts.Window {
 			delete(t.states, key)
-			t.perIP[key[:len(st.clientID)]]--
+			if ip, _, ok := strings.Cut(key, "\x00"); ok {
+				t.perIP[ip]--
+			}
 			t.total--
 		}
 	}
