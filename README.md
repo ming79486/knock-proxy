@@ -2,16 +2,16 @@
 
 中文 | [English](#english)
 
-`knock-proxy` 是一个端口敲门 TCP 转发工具。服务端用防火墙默认 DROP 公网 TCP 端口；客户端先发送 knock，服务端验证后临时放行来源 IP，然后客户端连接同一 TCP 端口，完成 HMAC-SHA256 二次认证并转发到本机 upstream。
+`knock-proxy` 用端口敲门把公网 TCP 服务藏到防火墙后面。服务端默认 DROP 受保护端口；客户端先发送 knock，验证通过后服务端只对该来源 IP 打开短暂访问窗口，随后客户端连接同一 TCP 端口，完成 HMAC-SHA256 二次认证并把流量转发到本机 upstream。
 
-适合隐藏 SSH、RDP、数据库管理端口、Web 管理后台等 TCP 服务。它不是 VPN、QUIC 隧道、多路复用代理或 UDP 代理。
+它适合保护 SSH、RDP、数据库管理端口、Web 管理后台和自定义 TCP 管理服务。典型用法是在公网只暴露一个看起来始终 `filtered` 的端口，只有持有 client ID 与共享密钥的客户端才能敲门、认证并建立转发。
 
 ## 功能
 
 - server / client / knock / probe / doctor / status / init 命令
 - proxy / direct 访问模式
 - TCP SYN knock、UDP knock、udp-passive knock
-- Windows TCP-SYN knock：experimental，优先 WinDivert（https://github.com/basil00/WinDivert/），未找到时回退 Npcap；批量部署推荐 UDP
+- Windows TCP-SYN knock：优先 WinDivert（https://github.com/basil00/WinDivert/），可回退 Npcap；批量部署推荐 UDP
 - HMAC-SHA256 认证；UDP knock/TCP auth 使用 timestamp + nonce 防重放，TCP SYN knock 使用 time-slot HMAC
 - 可选 ChaCha20-Poly1305 基础传输加密
 - nftables、iptables、ipset-iptables、script 防火墙后端
@@ -114,28 +114,28 @@ Windows 默认可用 UDP knock：
 sudo ./knock-proxy server --config ./examples/server.udp.yaml
 ```
 
-Windows TCP-SYN knock 属于 experimental。推荐从 https://github.com/basil00/WinDivert/ 获取 WinDivert，并把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录，或放在 `WinDivert/` 子目录，并以管理员权限运行：
+Windows TCP-SYN knock 推荐从 https://github.com/basil00/WinDivert/ 获取 WinDivert，并把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录，或放在 `WinDivert/` 子目录，并以管理员权限运行：
 
 ```powershell
 .\knock-proxy.exe knock --server example.com:443 --client-id admin --secret-file .\secret.key --method tcp-syn
 ```
 
-如果没有 WinDivert，程序会回退到 Npcap `Packet.dll`。
+WinDivert 不可用时，程序会回退到 Npcap `Packet.dll`。
 
 ---
 
 ## English
 
-`knock-proxy` is a port-knocking TCP forwarder. The server hides a public TCP port with default firewall DROP rules. The client sends a knock first; after verification, the server temporarily allows the source IP. The client then connects to the same TCP port, completes HMAC-SHA256 second-stage authentication, and forwards traffic to a local upstream service.
+`knock-proxy` uses port knocking to keep public TCP services behind firewall DROP rules. The client sends a knock first; after verification, the server opens a short allow window for that source IP. The client then connects to the same TCP port, completes HMAC-SHA256 second-stage authentication, and forwards traffic to a local upstream service.
 
-It is designed for hiding TCP services such as SSH, RDP, database administration ports, web admin panels, and custom management services. It is not a VPN, QUIC tunnel, multiplexed proxy, or UDP proxy.
+It protects SSH, RDP, database administration ports, web admin panels, and custom TCP management services. A typical deployment exposes a public port that remains `filtered` to unauthenticated scans, while clients with a valid client ID and shared secret can knock, authenticate, and establish forwarding.
 
 ## Features
 
 - server / client / knock / probe / doctor / status / init commands
 - proxy / direct access modes
 - TCP SYN knock, UDP knock, and udp-passive knock
-- Windows TCP-SYN knock: experimental, WinDivert (https://github.com/basil00/WinDivert/) preferred, Npcap fallback; UDP is recommended for fleets
+- Windows TCP-SYN knock: WinDivert (https://github.com/basil00/WinDivert/) preferred, Npcap fallback; UDP is recommended for fleets
 - HMAC-SHA256 authentication; timestamp + nonce replay protection for UDP knock/TCP auth and time-slot HMAC for TCP SYN knock
 - Optional ChaCha20-Poly1305 basic transport encryption
 - nftables, iptables, ipset-iptables, and script firewall backends
@@ -238,13 +238,13 @@ Use the matching UDP server configuration:
 sudo ./knock-proxy server --config ./examples/server.udp.yaml
 ```
 
-Windows TCP-SYN knock is experimental. Download WinDivert from https://github.com/basil00/WinDivert/, then place `WinDivert.dll` next to `knock-proxy.exe`, or under a `WinDivert/` subdirectory, and run as administrator:
+For Windows TCP-SYN knock, download WinDivert from https://github.com/basil00/WinDivert/, then place `WinDivert.dll` next to `knock-proxy.exe`, or under a `WinDivert/` subdirectory, and run as administrator:
 
 ```powershell
 .\knock-proxy.exe knock --server example.com:443 --client-id admin --secret-file .\secret.key --method tcp-syn
 ```
 
-If WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
+When WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
 
 
 ## License

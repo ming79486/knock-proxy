@@ -30,7 +30,7 @@ Windows 客户端可使用 `udp` knock，也可在 v1.2.1 起使用 `tcp-syn` kn
 .\knock-proxy.exe client --config .\examples\client.windows.yaml
 ```
 
-Windows `tcp-syn` 模式在 v1.2.1 起可用但应视为 experimental，推荐使用 WinDivert（https://github.com/basil00/WinDivert/）：把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录或 `WinDivert/` 子目录，并以管理员权限运行。若未找到 WinDivert，会回退到 Npcap `Packet.dll`。
+Windows `tcp-syn` 模式在 v1.2.1 起可用，推荐使用 WinDivert（https://github.com/basil00/WinDivert/）：把 `WinDivert.dll` 放在 `knock-proxy.exe` 同目录或 `WinDivert/` 子目录，并以管理员权限运行。WinDivert 不可用时会回退到 Npcap `Packet.dll`。
 
 
 ## direct 模式
@@ -76,7 +76,7 @@ ssh -p 443 user@example.com
 
 Windows 使用 UDP knock 时，服务端和 knock 命令都改成 `method: "udp"` / `--method udp`，真实应用仍然直接连接 `example.com:443`。
 
-注意：direct 模式不能使用 TCP 二次认证，因为 SSH/RDP/MySQL 等真实客户端不会发送 knock-proxy 的认证帧。它的安全边界是 knock 成功后的短时防火墙放行窗口，因此建议保持较短的 `allow_seconds`，并启用 `remove_after_first_connect`。
+direct 模式的访问边界来自 knock 成功后的短时防火墙放行窗口。建议保持较短的 `allow_seconds`，启用 `remove_after_first_connect`，并把 `max_connections_per_knock` 控制在业务需要的最小值。
 
 ## OpenWrt 23.x+
 
@@ -93,7 +93,7 @@ chmod +x /usr/bin/knock-proxy /etc/init.d/knock-proxy
 
 ## 验收
 
-未认证状态：
+敲门前端口状态：
 
 ```sh
 nmap -Pn -p 443 server_ip
@@ -135,7 +135,7 @@ dry-run：
 sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key --method tcp-syn
 ```
 
-`udp` / `udp-passive` 客户端使用普通 UDP 发包，不需要 raw socket：
+`udp` / `udp-passive` 客户端使用普通 UDP 发包：
 
 ```sh
 ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key --method udp-passive
