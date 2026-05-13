@@ -74,7 +74,7 @@ sudo ./knock-proxy knock --server example.com:443 --client-id client-001 --secre
 ssh -p 443 user@example.com
 ```
 
-Windows 使用 UDP knock 时，服务端和 knock 命令都改成 `method: "udp"` / `--method udp`，真实应用仍然直接连接 `example.com:443`。
+Windows 使用 UDP knock 时，服务端和 knock 命令都改成 `method: "udp"` / `--method udp`；需要多包 knock 时也可使用普通 UDP 路径 `udp-seq`。真实应用仍然直接连接 `example.com:443`。
 
 direct 模式的访问边界来自 knock 成功后的短时防火墙放行窗口。建议保持较短的 `allow_seconds`，启用 `remove_after_first_connect`，并把 `max_connections_per_knock` 控制在业务需要的最小值。
 
@@ -135,10 +135,11 @@ dry-run：
 sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key --method tcp-syn
 ```
 
-`udp` / `udp-passive` 客户端使用普通 UDP 发包：
+`udp` / `udp-passive` / `udp-seq` / `udp-passive-seq` 客户端使用普通 UDP 发包：
 
 ```sh
 ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key --method udp-passive
+./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key --method udp-seq
 ```
 
 probe：

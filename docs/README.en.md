@@ -27,10 +27,10 @@ Local application
 - `init` configuration generator
 - `server --dry-run`
 - proxy / direct access modes
-- TCP SYN knock, UDP knock, and udp-passive knock
+- TCP SYN knock, UDP knock, udp-passive knock, and udp-seq / udp-passive-seq / tcp-syn-seq sequence knocks
 - Windows TCP-SYN knock: WinDivert (https://github.com/basil00/WinDivert/) preferred, Npcap fallback; UDP is recommended for fleets
 - HMAC-SHA256 second-stage authentication
-- Timestamp + nonce replay protection for UDP knock/TCP auth; time-slot HMAC for TCP SYN knock
+- Timestamp + nonce replay protection for UDP knock/TCP auth; multi-packet nonce sequences for udp-seq/udp-passive-seq; time-slot HMAC for TCP SYN knock/tcp-syn-seq
 - ChaCha20-Poly1305 basic transport encryption
 - nftables, iptables, ipset-iptables, and script firewall backends
 - OpenWrt 23.x+ nftables/firewall4 support

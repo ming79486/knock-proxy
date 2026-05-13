@@ -191,7 +191,7 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) error {
 	if geteuid() == 0 {
 		d.ok("running as root")
 	} else {
-		d.warn("not running as root; server tcp-syn/udp-passive modes may require CAP_NET_RAW/CAP_NET_ADMIN")
+		d.warn("not running as root; server tcp-syn/tcp-syn-seq/udp-passive/udp-passive-seq modes may require CAP_NET_RAW/CAP_NET_ADMIN")
 	}
 	for _, cap := range effectiveCapabilityStatuses() {
 		if cap.Err != nil {
@@ -401,7 +401,7 @@ func initClientMethod(opts InitOptions) string {
 
 func validateInitKnockMethod(method string) error {
 	switch method {
-	case "tcp-syn", "udp", "udp-passive":
+	case "tcp-syn", "udp", "udp-passive", "udp-seq", "udp-passive-seq", "tcp-syn-seq":
 		return nil
 	default:
 		return fmt.Errorf("unsupported knock method %q", method)
@@ -417,7 +417,7 @@ func writeInitNotes(outDir, platform, method string) error {
 		notes += "\nWindows tcp-syn knock uses WinDivert when WinDivert.dll is available, otherwise Npcap Packet.dll. Run as administrator.\n"
 	}
 	if platform == "darwin" && method == "tcp-syn" {
-		return errors.New("macOS tcp-syn knock is currently not implemented; use knock.method: udp")
+		return errors.New("macOS tcp-syn/tcp-syn-seq knock is currently not implemented; use knock.method: udp or udp-seq")
 	}
 	return os.WriteFile(filepath.Join(outDir, "NOTES.txt"), []byte(notes), 0o644)
 }

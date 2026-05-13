@@ -10,9 +10,9 @@
 
 - server / client / knock / probe / doctor / status / init 命令
 - proxy / direct 访问模式
-- TCP SYN knock、UDP knock、udp-passive knock
+- TCP SYN knock、UDP knock、udp-passive knock，以及 udp-seq / udp-passive-seq / tcp-syn-seq 多包序列 knock
 - Windows TCP-SYN knock：优先 WinDivert（https://github.com/basil00/WinDivert/），可回退 Npcap；批量部署推荐 UDP
-- HMAC-SHA256 认证；UDP knock/TCP auth 使用 timestamp + nonce 防重放，TCP SYN knock 使用 time-slot HMAC
+- HMAC-SHA256 认证；UDP knock/TCP auth 使用 timestamp + nonce 防重放；udp-seq/udp-passive-seq 使用多包 nonce 序列；TCP SYN knock/tcp-syn-seq 使用 time-slot HMAC
 - 可选 ChaCha20-Poly1305 基础传输加密
 - nftables、iptables、ipset-iptables、script 防火墙后端
 - OpenWrt 23.x+ nftables/firewall4 支持
@@ -134,9 +134,9 @@ It protects SSH, RDP, database administration ports, web admin panels, and custo
 
 - server / client / knock / probe / doctor / status / init commands
 - proxy / direct access modes
-- TCP SYN knock, UDP knock, and udp-passive knock
+- TCP SYN knock, UDP knock, udp-passive knock, and udp-seq / udp-passive-seq / tcp-syn-seq sequence knocks
 - Windows TCP-SYN knock: WinDivert (https://github.com/basil00/WinDivert/) preferred, Npcap fallback; UDP is recommended for fleets
-- HMAC-SHA256 authentication; timestamp + nonce replay protection for UDP knock/TCP auth and time-slot HMAC for TCP SYN knock
+- HMAC-SHA256 authentication; timestamp + nonce replay protection for UDP knock/TCP auth, multi-packet nonce sequences for udp-seq/udp-passive-seq, and time-slot HMAC for TCP SYN knock/tcp-syn-seq
 - Optional ChaCha20-Poly1305 basic transport encryption
 - nftables, iptables, ipset-iptables, and script firewall backends
 - OpenWrt 23.x+ nftables/firewall4 support

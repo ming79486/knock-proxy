@@ -72,7 +72,7 @@ func runClient(ctx context.Context, args []string) error {
 	fs.StringVar(&opts.ClientID, "client-id", "", "client id")
 	fs.StringVar(&opts.Secret, "secret", "", "shared secret, preferably base64:<data>")
 	fs.StringVar(&opts.SecretFile, "secret-file", "", "path to shared secret file")
-	fs.StringVar(&opts.Method, "method", "", "knock method override: tcp-syn, udp, or udp-passive")
+	fs.StringVar(&opts.Method, "method", "", "knock method override: tcp-syn, udp, udp-passive, udp-seq, udp-passive-seq, or tcp-syn-seq")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -106,7 +106,7 @@ func runKnock(ctx context.Context, args []string) error {
 	fs.StringVar(&opts.ClientID, "client-id", "", "client id")
 	fs.StringVar(&opts.Secret, "secret", "", "shared secret, preferably base64:<data>")
 	fs.StringVar(&opts.SecretFile, "secret-file", "", "path to shared secret file")
-	fs.StringVar(&opts.Method, "method", "", "knock method: tcp-syn, udp, or udp-passive; default is platform-aware")
+	fs.StringVar(&opts.Method, "method", "", "knock method: tcp-syn, udp, udp-passive, udp-seq, udp-passive-seq, or tcp-syn-seq; default is platform-aware")
 	fs.IntVar(&opts.UDPKnockPort, "udp-port", 0, "UDP knock port when it differs from --server TCP port")
 	fs.IntVar(&opts.ProtectedTCPPort, "protected-port", 0, "protected TCP port used in knock/auth HMAC when --server points at a different address/port")
 	fs.BoolVar(&opts.WaitOpen, "wait-open", false, "after knock, wait until the TCP port accepts connections")
@@ -171,7 +171,7 @@ func runInit(ctx context.Context, args []string) error {
 	fs.StringVar(&opts.SecretFile, "secret-file", "", "existing secret file for client init")
 	fs.StringVar(&opts.OutDir, "out", ".", "output directory")
 	fs.StringVar(&opts.Platform, "platform", runtime.GOOS, "target platform for generated client notes/defaults: linux, windows, or darwin")
-	fs.StringVar(&opts.Method, "method", "", "knock method for generated config: tcp-syn, udp, or udp-passive")
+	fs.StringVar(&opts.Method, "method", "", "knock method for generated config: tcp-syn, udp, udp-passive, udp-seq, udp-passive-seq, or tcp-syn-seq")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}

@@ -57,19 +57,41 @@ Direct mode configuration essentials: `require_tcp_auth: false` and `transport.e
 
 | Field | Default | Description |
 | --- | --- | --- |
-| `method` | server/Linux client `tcp-syn`, Windows/macOS client `udp` | Supports `tcp-syn`, `udp`, or `udp-passive`. Windows clients use `udp` by default; Windows `tcp-syn` is available since v1.2.1, preferring WinDivert (https://github.com/basil00/WinDivert/) and falling back to Npcap when WinDivert is unavailable. |
-| `udp_listen` | TCP listen port | Normal UDP socket listen address for `udp` mode. `udp-passive` uses passive packet capture. |
+| `method` | server/Linux client `tcp-syn`, Windows/macOS client `udp` | Supports `tcp-syn`, `udp`, `udp-passive`, `udp-seq`, `udp-passive-seq`, and `tcp-syn-seq`. Windows clients use `udp` by default; Windows `tcp-syn` is available since v1.2.1, preferring WinDivert (https://github.com/basil00/WinDivert/) and falling back to Npcap when WinDivert is unavailable. |
+| `udp_listen` | TCP listen port | Normal UDP socket listen address for `udp` and `udp-seq` modes. `udp-passive` and `udp-passive-seq` use passive packet capture. |
 | `udp_knock_port` | TCP listen port | UDP knock port. Legacy `udp_port` is still accepted. On clients, UDP knocks go to this port while HMAC remains bound to `protected_tcp_port` or the TCP port in `client.server_addr`. |
 | `log_invalid_knock` | `false` | Log invalid UDP knock packets when diagnostics are needed. Invalid UDP knocks are otherwise dropped silently. |
 | `timeout_seconds` | `3` | Client-side timeout for one knock attempt. |
 | `retry` | `2` | Retry count. Total attempts are `retry + 1`. |
 | `time_window_seconds` | `30` | Time slot size. The server accepts current, previous, and next slots. |
 
-UDP knock note: the TCP port should still appear `filtered`; the UDP port may appear `open|filtered` in UDP scans, which is expected for a UDP socket that silently drops invalid packets.
+Sequence methods:
+
+- `udp-seq` sends several ordinary UDP knock packets and only opens the TCP window after the full sequence is verified.
+- `udp-passive-seq` is the passive-capture version of `udp-seq`; it keeps the UDP knock port dropped and requires a firewall backend that can manage that DROP rule.
+- `tcp-syn-seq` encodes the sequence across several TCP SYN packets. Linux server/client paths require raw-packet privileges; Windows TCP-SYN support follows the same WinDivert/Npcap caveats as `tcp-syn`.
+
+`knock.sequence` controls sequence methods:
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `length` | `3` | Number of packets in the sequence. Valid range: 2-5. |
+| `slot_seconds` | `30` | Time slot size used by sequence verification. |
+| `window` | `10s` | Maximum time allowed for an in-flight sequence. |
+| `packet_interval` | `80ms` | Client delay between sequence packets. |
+| `max_jitter` | `0ms` | Optional random extra client delay. |
+| `allow_reorder` | `false` | Reserved ordering flag; keep false unless explicitly testing reordering behavior. |
+| `max_inflight_per_ip` | `8` | Maximum partial sequences tracked per source IP. |
+| `max_total_inflight` | `4096` | Global maximum partial sequences. |
+| `gc_interval` | `2s` | Server cleanup interval for expired partial sequences. |
+
+`knock.replay.nonce_ttl` defaults to `2m` and must be greater than `knock.sequence.window`.
+
+UDP knock note: the TCP port should still appear `filtered`; the UDP port may appear `open|filtered` in ordinary `udp` / `udp-seq` modes, which is expected for a UDP socket that silently drops invalid packets.
 
 Windows client note: client mode defaults to `udp`. Windows `tcp-syn` mode works best with WinDivert (https://github.com/basil00/WinDivert/): place `WinDivert.dll` next to `knock-proxy.exe` or in a `WinDivert/` subdirectory, and run as administrator. When WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
 
-`udp-passive` note: the server captures UDP knock packets through Linux AF_PACKET while the firewall keeps the UDP knock port dropped. Valid knocks are still recognized by passive capture. When enabled, the server automatically enables `firewall.drop_udp_knock_port`. This mode is useful when the UDP knock port should also stay quiet during scans, and requires root or `CAP_NET_ADMIN` + `CAP_NET_RAW` on the server. IPv6 UDP knock handling covers ordinary IPv6 packets.
+`udp-passive` / `udp-passive-seq` note: the server captures UDP knock packets through Linux AF_PACKET while the firewall keeps the UDP knock port dropped. Valid knocks are still recognized by passive capture. When enabled, the server automatically enables `firewall.drop_udp_knock_port`. These modes are useful when the UDP knock port should also stay quiet during scans, and require root or `CAP_NET_ADMIN` + `CAP_NET_RAW` on the server. IPv6 UDP knock handling covers ordinary IPv6 packets.
 
 ## `auth`
 
@@ -105,7 +127,7 @@ Windows client note: client mode defaults to `udp`. Windows `tcp-syn` mode works
 | `default_action` | `drop` | Must be `drop`. |
 | `allow_seconds` | `15` | Temporary allow duration after a successful knock. |
 | `remove_after_auth` | `true` | Revoke temporary allow after successful authentication. |
-| `drop_udp_knock_port` | `false`, automatically enabled for `udp-passive` | Also drop the UDP knock port. Use this with `udp-passive` only. |
+| `drop_udp_knock_port` | `false`, automatically enabled for `udp-passive` / `udp-passive-seq` | Also drop the UDP knock port. Use this with passive UDP methods only. |
 
 Auto-detection order:
 
@@ -148,7 +170,7 @@ IPv6 ipset support requires `ip6tables`.
 | `revoke_cmd` | `revoke.sh <client_ip> <port>` |
 | `cleanup_cmd` | `cleanup.sh <port>` |
 
-The `script` backend is for integrating custom firewall scripts. For `udp-passive`, prefer nftables/iptables/ipset; if `script` is used, maintain the UDP DROP rule outside the program.
+The `script` backend is for integrating custom firewall scripts. For `udp-passive` / `udp-passive-seq`, prefer nftables/iptables/ipset; if `script` is used, maintain the UDP DROP rule outside the program.
 
 ## `transport`
 
@@ -202,16 +224,16 @@ The authentication frame remains plaintext JSON and is HMAC-protected. Applicati
 - `server.tcp_listen` port matches `firewall.port`.
 - Prefer a loopback client listener. If `0.0.0.0` or a public address is explicitly used, make sure the local firewall restricts access.
 - No higher-priority firewall ACCEPT rule bypasses DROP.
-- Server has root or `CAP_NET_ADMIN` + `CAP_NET_RAW` in `tcp-syn` or `udp-passive` mode.
-- Linux clients need root or `CAP_NET_RAW` in `tcp-syn` mode. Windows clients use `udp` by default; Windows `tcp-syn` prefers WinDivert (https://github.com/basil00/WinDivert/), falls back to Npcap, and requires administrator privileges. `udp` / `udp-passive` clients send normal UDP packets.
+- Server has root or `CAP_NET_ADMIN` + `CAP_NET_RAW` in `tcp-syn`, `tcp-syn-seq`, `udp-passive`, or `udp-passive-seq` mode.
+- Linux clients need root or `CAP_NET_RAW` in `tcp-syn` / `tcp-syn-seq` mode. Windows clients use `udp` by default; Windows `tcp-syn` prefers WinDivert (https://github.com/basil00/WinDivert/), falls back to Npcap, and requires administrator privileges. `udp` / `udp-passive` / `udp-seq` / `udp-passive-seq` clients send normal UDP packets.
 
 ## Security Notes and State Machine
 
 - Protection goal: hide public TCP services from unauthenticated scans and opportunistic brute force, then gate access with client IDs, shared secrets, HMAC, nonces, and short firewall allow windows.
 - `proxy` mode is the production default: knock accept -> temporary firewall allow -> TCP HMAC auth -> optional encrypted relay -> revoke. TCP auth uses `version`, timestamp, nonce, protected TCP port, client ID, and HMAC.
 - `direct` mode state: knock accept -> temporary firewall allow -> first direct TCP connection -> revoke. It fits lower-risk or controlled networks where native TCP clients need to connect directly.
-- UDP knock and TCP auth include a nonce and are protected by the nonce cache. TCP SYN knock has no nonce; it is a time-slot HMAC encoded in SYN fields, so replay resistance is bounded by the configured time window.
-- `udp-passive` requires a backend that can drop the UDP knock port; nftables/iptables/ipset are recommended. With custom scripts, keep the corresponding DROP rule in the external script layer.
+- UDP knock and TCP auth include a nonce and are protected by the nonce cache. `udp-seq` and `udp-passive-seq` split the knock across multiple nonce-bearing packets tracked by `knock.sequence` and `knock.replay`. TCP SYN knock has no nonce; `tcp-syn` and `tcp-syn-seq` use time-slot HMAC encoded in SYN fields, so replay resistance is bounded by the configured time window.
+- `udp-passive` / `udp-passive-seq` require a backend that can drop the UDP knock port; nftables/iptables/ipset are recommended. With custom scripts, keep the corresponding DROP rule in the external script layer.
 - Windows TCP-SYN knock uses WinDivert (https://github.com/basil00/WinDivert/) or Npcap and fits environments where the driver can be installed consistently and the process can run as administrator. Prefer UDP knock on Windows fleets. macOS clients use UDP.
 - Logging avoids secrets and full auth/knock payloads. Keep log level at `info` or `warn` in production unless diagnosing a live issue.
 
@@ -226,4 +248,4 @@ The authentication frame remains plaintext JSON and is HMAC-protected. Applicati
 
 ## Protocol Compatibility
 
-Current protocol version is `1` for UDP knock and TCP auth JSON frames. Receivers accept explicitly supported versions and return clear validation errors for other versions, avoiding silent downgrade or ambiguous frames. TCP SYN knock compatibility is defined by the `syn-knock` HMAC purpose, protected TCP port, client ID, and time-slot layout. Future protocol changes should introduce a new version and retain explicit validation errors during migration.
+Current protocol version is `1` for UDP knock and TCP auth JSON frames. Receivers accept explicitly supported versions and return clear validation errors for other versions, avoiding silent downgrade or ambiguous frames. TCP SYN knock compatibility is defined by the `syn-knock` / `syn-seq-knock` HMAC purposes, protected TCP port, client ID, and time-slot layout. Future protocol changes should introduce a new version and retain explicit validation errors during migration.

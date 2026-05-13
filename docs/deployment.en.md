@@ -74,7 +74,7 @@ sudo ./knock-proxy knock --server example.com:443 --client-id client-001 --secre
 ssh -p 443 user@example.com
 ```
 
-For Windows UDP knock, set both the server config and the knock command to `method: "udp"` / `--method udp`. The real application still connects directly to `example.com:443`.
+For Windows UDP knock, set both the server config and the knock command to `method: "udp"` / `--method udp`. `udp-seq` is also a normal UDP client path when multi-packet knocks are desired. The real application still connects directly to `example.com:443`.
 
 Direct mode is bounded by the short firewall allow window after a successful knock. Keep `allow_seconds` short, enable `remove_after_first_connect`, and keep `max_connections_per_knock` at the minimum needed by the deployment.
 
@@ -135,10 +135,11 @@ One-shot knock:
 sudo ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key --method tcp-syn
 ```
 
-`udp` / `udp-passive` clients send normal UDP packets:
+`udp` / `udp-passive` / `udp-seq` / `udp-passive-seq` clients send normal UDP packets:
 
 ```sh
 ./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key --method udp-passive
+./knock-proxy knock --server example.com:443 --client-id admin --secret-file ./secret.key --method udp-seq
 ```
 
 probe:
