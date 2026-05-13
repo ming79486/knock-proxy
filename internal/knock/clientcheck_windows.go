@@ -12,7 +12,7 @@ func CheckClientSupport(method string) error {
 		return nil
 	}
 	if err := packetDLL.Load(); err != nil {
-		return fmt.Errorf("tcp-syn knock on Windows requires WinDivert.dll or Npcap Packet.dll. Place WinDivert.dll next to knock-proxy.exe, install Npcap, or switch knock.method to udp: %w", err)
+		return fmt.Errorf("tcp-syn/tcp-syn-seq knock on Windows requires WinDivert.dll or Npcap Packet.dll. Place WinDivert.dll next to knock-proxy.exe, install Npcap, or switch knock.method to udp/udp-seq: %w", err)
 	}
 	return nil
 }

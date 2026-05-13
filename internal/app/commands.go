@@ -413,8 +413,8 @@ func writeInitNotes(outDir, platform, method string) error {
 		platform = runtime.GOOS
 	}
 	notes := fmt.Sprintf("knock-proxy generated client notes\n\nplatform: %s\nknock.method: %s\n", platform, method)
-	if platform == "windows" && method == "tcp-syn" {
-		notes += "\nWindows tcp-syn knock uses WinDivert when WinDivert.dll is available, otherwise Npcap Packet.dll. Run as administrator.\n"
+	if platform == "windows" && (method == "tcp-syn" || method == "tcp-syn-seq") {
+		notes += "\nWindows tcp-syn/tcp-syn-seq knock uses WinDivert when WinDivert.dll is available, otherwise Npcap Packet.dll. Run as administrator.\n"
 	}
 	if platform == "darwin" && method == "tcp-syn" {
 		return errors.New("macOS tcp-syn/tcp-syn-seq knock is currently not implemented; use knock.method: udp or udp-seq")

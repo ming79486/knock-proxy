@@ -58,7 +58,89 @@ func Send(ctx context.Context, opts SendOptions) error {
 	return windowsSendFrame(adapterNames, buildEthernetIPv4Frame(iface.HardwareAddr, dstMAC, ipPacket))
 }
 
+func SendSYNSequence(ctx context.Context, opts SendOptions) error {
+	seq := normalizedSequenceOptions(opts.Sequence)
+	remote, err := net.ResolveTCPAddr("tcp4", opts.ServerAddr)
+	if err != nil {
+		return err
+	}
+	if remote.IP == nil {
+		return fmt.Errorf("server address %q did not resolve to an IP address", opts.ServerAddr)
+	}
+	if remote.IP.To4() == nil {
+		return errors.New("windows tcp-syn-seq knock currently supports IPv4 only; use udp/udp-seq for IPv6")
+	}
+	localIP, err := outboundIPv4(remote)
+	if err != nil {
+		return err
+	}
+	parts := auth.ComputeSYNSeqParts(opts.Secret, opts.ClientID, opts.ServerPort, time.Now().Unix()/int64(seq.SlotSeconds), seq.Length)
+	if err := windowsSendSYNSequenceWinDivert(ctx, localIP, remote.IP.To4(), parts, seq); err == nil {
+		return nil
+	}
+	iface, err := windowsRouteInterface(localIP)
+	if err != nil {
+		return err
+	}
+	gatewayIP, err := windowsGatewayIPv4(remote.IP.To4(), iface, localIP)
+	if err != nil {
+		return err
+	}
+	dstMAC, err := windowsResolveMAC(ctx, iface, gatewayIP)
+	if err != nil {
+		return err
+	}
+	adapterNames, err := windowsAdapterNameCandidates(iface)
+	if err != nil {
+		return err
+	}
+	for i, part := range parts {
+		packet, err := buildSYNPacket(localIP, remote.IP.To4(), randomEphemeralPort(), part.Port, part.Fields)
+		if err != nil {
+			return err
+		}
+		if err := windowsSendFrame(adapterNames, buildEthernetIPv4Frame(iface.HardwareAddr, dstMAC, packet)); err != nil {
+			return err
+		}
+		if err := sleepSequenceInterval(ctx, i, len(parts), seq); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func windowsSendSYNSequenceWinDivert(ctx context.Context, localIP, remoteIP net.IP, parts []auth.SYNSeqPart, seq SequenceOptions) error {
+	for i, part := range parts {
+		packet, err := buildSYNPacket(localIP, remoteIP, randomEphemeralPort(), part.Port, part.Fields)
+		if err != nil {
+			return err
+		}
+		if err := windowsSendIPPacketWinDivert(packet); err != nil {
+			return err
+		}
+		if err := sleepSequenceInterval(ctx, i, len(parts), seq); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sleepSequenceInterval(ctx context.Context, index, total int, seq SequenceOptions) error {
+	if index+1 >= total {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(seq.PacketInterval + jitter(seq.MaxJitter)):
+		return nil
+	}
+}
+
 func Listen(ctx context.Context, opts ListenOptions, handler Handler) error { return ErrUnsupported }
+func ListenSYNSequence(ctx context.Context, opts ListenOptions, handler Handler) error {
+	return ErrUnsupported
+}
 func ListenUDPPassive(ctx context.Context, opts ListenOptions, handler Handler) error {
 	return ErrUnsupported
 }
