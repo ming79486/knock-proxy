@@ -69,7 +69,7 @@ Sequence methods:
 
 - `udp-seq` sends several ordinary UDP knock packets and only opens the TCP window after the full sequence is verified.
 - `udp-passive-seq` is the passive-capture version of `udp-seq`; it keeps the UDP knock port dropped and requires a firewall backend that can manage that DROP rule.
-- `tcp-syn-seq` encodes the sequence across several TCP SYN packets. Linux server/client paths require raw-packet privileges; Windows TCP-SYN support follows the same WinDivert/Npcap caveats as `tcp-syn`.
+- `tcp-syn-seq` encodes the sequence across several TCP SYN packets sent to the protected TCP port. Linux server/client paths require raw-packet privileges; Windows TCP-SYN support follows the same WinDivert/Npcap caveats as `tcp-syn`.
 
 `knock.sequence` controls sequence methods:
 
@@ -232,7 +232,7 @@ The authentication frame remains plaintext JSON and is HMAC-protected. Applicati
 - Protection goal: hide public TCP services from unauthenticated scans and opportunistic brute force, then gate access with client IDs, shared secrets, HMAC, nonces, and short firewall allow windows.
 - `proxy` mode is the production default: knock accept -> temporary firewall allow -> TCP HMAC auth -> optional encrypted relay -> revoke. TCP auth uses `version`, timestamp, nonce, protected TCP port, client ID, and HMAC.
 - `direct` mode state: knock accept -> temporary firewall allow -> first direct TCP connection -> revoke. It fits lower-risk or controlled networks where native TCP clients need to connect directly.
-- UDP knock and TCP auth include a nonce and are protected by the nonce cache. `udp-seq` and `udp-passive-seq` split the knock across multiple nonce-bearing packets tracked by `knock.sequence` and `knock.replay`. TCP SYN knock has no nonce; `tcp-syn` and `tcp-syn-seq` use time-slot HMAC encoded in SYN fields, so replay resistance is bounded by the configured time window.
+- UDP knock and TCP auth include a nonce and are protected by the nonce cache. `udp-seq` and `udp-passive-seq` split the knock across multiple nonce-bearing packets tracked by `knock.sequence` and `knock.replay`. TCP SYN knock has no nonce; `tcp-syn` and `tcp-syn-seq` use time-slot HMAC encoded in SYN fields, so replay resistance is bounded by the configured time window. `tcp-syn-seq` uses the protected TCP destination port for every part so deployments that only expose that port at an upstream/cloud firewall can still receive the knock.
 - `udp-passive` / `udp-passive-seq` require a backend that can drop the UDP knock port; nftables/iptables/ipset are recommended. With custom scripts, keep the corresponding DROP rule in the external script layer.
 - Windows TCP-SYN knock uses WinDivert (https://github.com/basil00/WinDivert/) or Npcap and fits environments where the driver can be installed consistently and the process can run as administrator. Prefer UDP knock on Windows fleets. macOS clients use UDP.
 - Logging avoids secrets and full auth/knock payloads. Keep log level at `info` or `warn` in production unless diagnosing a live issue.

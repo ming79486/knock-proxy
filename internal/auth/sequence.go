@@ -171,6 +171,14 @@ type SYNSeqPart struct {
 }
 
 func ComputeSYNSeqParts(secret []byte, clientID string, protectedPort int, slot int64, total int) []SYNSeqPart {
+	return computeSYNSeqParts(secret, clientID, protectedPort, slot, total, false)
+}
+
+func computeLegacySYNSeqParts(secret []byte, clientID string, protectedPort int, slot int64, total int) []SYNSeqPart {
+	return computeSYNSeqParts(secret, clientID, protectedPort, slot, total, true)
+}
+
+func computeSYNSeqParts(secret []byte, clientID string, protectedPort int, slot int64, total int, legacyRandomPorts bool) []SYNSeqPart {
 	if total < 2 || total > 5 {
 		total = 3
 	}
@@ -183,7 +191,10 @@ func ComputeSYNSeqParts(secret []byte, clientID string, protectedPort int, slot 
 		writeInt64(mac, slot)
 		writeUint16(mac, uint16(i))
 		tag := mac.Sum(nil)
-		port := 1024 + int(binary.BigEndian.Uint16(tag[0:2])%64511)
+		port := protectedPort
+		if legacyRandomPorts {
+			port = 1024 + int(binary.BigEndian.Uint16(tag[0:2])%64511)
+		}
 		window := binary.BigEndian.Uint16(tag[6:8])
 		if window == 0 {
 			window = 1
@@ -201,11 +212,14 @@ func VerifySYNSeqPart(fields SYNFields, dstPort int, clients []ClientSecret, pro
 	for _, client := range clients {
 		for _, delta := range []int64{-1, 0, 1} {
 			slot := current + delta
-			parts := ComputeSYNSeqParts(client.Secret, client.ClientID, protectedPort, slot, total)
-			if index >= 0 && index < len(parts) && parts[index].Port == dstPort && parts[index].Fields == fields {
+			if synSeqPartMatches(ComputeSYNSeqParts(client.Secret, client.ClientID, protectedPort, slot, total), index, dstPort, fields) || synSeqPartMatches(computeLegacySYNSeqParts(client.Secret, client.ClientID, protectedPort, slot, total), index, dstPort, fields) {
 				return client.ClientID, slot, true
 			}
 		}
 	}
 	return "", 0, false
+}
+
+func synSeqPartMatches(parts []SYNSeqPart, index, dstPort int, fields SYNFields) bool {
+	return index >= 0 && index < len(parts) && parts[index].Port == dstPort && parts[index].Fields == fields
 }

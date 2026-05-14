@@ -69,7 +69,7 @@ direct 模式配置要点：`require_tcp_auth: false`，`transport.encryption: f
 
 - `udp-seq` 发送多个普通 UDP knock 包，服务端只有验证完整序列后才打开 TCP 窗口。
 - `udp-passive-seq` 是 `udp-seq` 的旁路捕获版本；UDP knock 端口保持 DROP，要求防火墙后端能管理这条 DROP 规则。
-- `tcp-syn-seq` 把序列编码到多个 TCP SYN 包中。Linux 服务端/客户端路径需要 raw packet 权限；Windows TCP-SYN 支持与 `tcp-syn` 一样受 WinDivert/Npcap 条件约束。
+- `tcp-syn-seq` 把序列编码到多个发往受保护 TCP 端口的 SYN 包中。Linux 服务端/客户端路径需要 raw packet 权限；Windows TCP-SYN 支持与 `tcp-syn` 一样受 WinDivert/Npcap 条件约束。
 
 `knock.sequence` 控制序列方法：
 
@@ -232,7 +232,7 @@ IPv6 ipset 依赖 `ip6tables`。
 - 保护目标：把公网 TCP 服务从未认证扫描和低成本爆破中隐藏起来，并通过 client ID、共享密钥、HMAC、nonce 和短时防火墙放行窗口控制访问入口。
 - `proxy` 是生产默认模式：knock 通过 -> 防火墙临时放行 -> TCP HMAC 认证 -> 可选加密转发 -> revoke。TCP auth 使用 `version`、timestamp、nonce、受保护 TCP 端口、client ID 和 HMAC。
 - `direct` 状态机：knock 通过 -> 防火墙临时放行 -> 第一次真实 TCP 连接 -> revoke。它适合低风险或受控网络中需要直接使用原生 TCP 客户端的场景。
-- UDP knock 和 TCP auth 都带 nonce，并由 nonce cache 防重放。`udp-seq` / `udp-passive-seq` 会把 knock 拆成多个带 nonce 的包，由 `knock.sequence` 和 `knock.replay` 追踪。TCP SYN knock 无 nonce；`tcp-syn` / `tcp-syn-seq` 使用编码在 SYN 字段里的 time-slot HMAC，抗重放边界由配置的时间窗口决定。
+- UDP knock 和 TCP auth 都带 nonce，并由 nonce cache 防重放。`udp-seq` / `udp-passive-seq` 会把 knock 拆成多个带 nonce 的包，由 `knock.sequence` 和 `knock.replay` 追踪。TCP SYN knock 无 nonce；`tcp-syn` / `tcp-syn-seq` 使用编码在 SYN 字段里的 time-slot HMAC，抗重放边界由配置的时间窗口决定。`tcp-syn-seq` 每一段都使用受保护 TCP 目标端口，因此只在云防火墙/上游防火墙暴露该端口的部署也能收到 knock。
 - `udp-passive` / `udp-passive-seq` 需要能 DROP UDP knock 端口的防火墙后端；推荐 nftables/iptables/ipset。使用自定义脚本时，由外部脚本维护对应 DROP 规则。
 - Windows TCP-SYN knock 依赖 WinDivert（https://github.com/basil00/WinDivert/）/Npcap，适合可统一安装驱动并以管理员权限运行的环境；Windows 批量部署默认推荐 UDP。macOS 客户端使用 UDP。
 - 日志会避免输出 secret 或完整 auth/knock payload。生产环境建议保持 `info` 或 `warn`，仅排障时临时打开 `debug`。
