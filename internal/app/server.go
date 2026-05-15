@@ -20,6 +20,7 @@ import (
 	"github.com/ming79486/knock-proxy/internal/relay"
 	"github.com/ming79486/knock-proxy/internal/secure"
 	"github.com/ming79486/libknock"
+	libseq "github.com/ming79486/libknock/knock"
 )
 
 func RunServer(ctx context.Context, opts ServerOptions) error {
@@ -96,24 +97,21 @@ func RunServer(ctx context.Context, opts ServerOptions) error {
 			TimeWindow:    rt.KnockTimeWindow,
 			AllowPacket:   state.allowKnockPacket,
 			InvalidPacket: state.invalidKnockPacket,
-			Sequence: knock.SequenceOptions{
-				Length: rt.SequenceLength, SlotSeconds: rt.SequenceSlot, Window: rt.SequenceWindow, PacketInterval: rt.SequencePacketInterval, MaxJitter: rt.SequenceMaxJitter, AllowReorder: rt.SequenceAllowReorder, MaxInflightPerIP: rt.SequenceMaxInflightIP, MaxTotalInflight: rt.SequenceMaxInflight,
-			},
-			NonceTTL: rt.SequenceNonceTTL,
 		}
+		seqListenOpts := libSeqListenOptions(rt, state)
 		switch rt.KnockMethod {
 		case "tcp-syn":
 			knockErr <- knock.Listen(ctx, listenOpts, state.handleKnock)
 		case "udp":
 			knockErr <- knock.ListenUDP(ctx, rt.UDPListen, listenOpts, state.handleKnock)
 		case "udp-seq":
-			knockErr <- knock.ListenUDPSequence(ctx, rt.UDPListen, listenOpts, state.handleKnock)
+			knockErr <- libseq.ListenUDPSequence(ctx, rt.UDPListen, seqListenOpts, handleLibSeqKnock(state))
 		case "udp-passive":
 			knockErr <- knock.ListenUDPPassive(ctx, listenOpts, state.handleKnock)
 		case "udp-passive-seq":
-			knockErr <- knock.ListenUDPPassiveSequence(ctx, listenOpts, state.handleKnock)
+			knockErr <- libseq.ListenUDPPassiveSequence(ctx, seqListenOpts, handleLibSeqKnock(state))
 		case "tcp-syn-seq":
-			knockErr <- knock.ListenSYNSequence(ctx, listenOpts, state.handleKnock)
+			knockErr <- libseq.ListenSYNSequence(ctx, seqListenOpts, handleLibSeqKnock(state))
 		default:
 			knockErr <- fmt.Errorf("knock method %q is not implemented", rt.KnockMethod)
 		}
@@ -259,17 +257,18 @@ func validateRuntimeStartup(ctx context.Context, rt config.ServerRuntime, checkU
 }
 
 type serverState struct {
-	rt           config.ServerRuntime
-	fw           firewall.Backend
-	log          *logging.Logger
-	metrics      *metrics.Registry
-	knocks       *knockStore
-	nonces       *oldauth.NonceCache
-	tcpAuth      libknock.ServerConfig
-	rate         *limits.RateLimiter
-	bans         *limits.BanTracker
-	conns        *limits.Connections
-	knockClients []oldauth.ClientSecret
+	rt              config.ServerRuntime
+	fw              firewall.Backend
+	log             *logging.Logger
+	metrics         *metrics.Registry
+	knocks          *knockStore
+	nonces          *oldauth.NonceCache
+	tcpAuth         libknock.ServerConfig
+	rate            *limits.RateLimiter
+	bans            *limits.BanTracker
+	conns           *limits.Connections
+	knockClients    []oldauth.ClientSecret
+	seqKnockClients []libseq.ClientSecret
 }
 
 func newServerState(rt config.ServerRuntime, fw firewall.Backend, log *logging.Logger) (*serverState, error) {
@@ -278,23 +277,26 @@ func newServerState(rt config.ServerRuntime, fw firewall.Backend, log *logging.L
 		return nil, err
 	}
 	clients := make([]oldauth.ClientSecret, 0, len(rt.Clients))
+	seqClients := make([]libseq.ClientSecret, 0, len(rt.Clients))
 	secrets := make(map[string][]byte, len(rt.Clients))
 	for _, client := range rt.Clients {
 		clients = append(clients, oldauth.ClientSecret{ClientID: client.ID, Secret: client.Secret})
+		seqClients = append(seqClients, libseq.ClientSecret{ClientID: client.ID, Secret: client.Secret})
 		secrets[client.ID] = append([]byte(nil), client.Secret...)
 	}
 	return &serverState{
-		rt:           rt,
-		fw:           fw,
-		log:          log,
-		metrics:      metrics.NewBuildInfo(),
-		knocks:       newKnockStore(),
-		nonces:       oldauth.NewNonceCacheWithLimit(rt.NonceCacheTTL, rt.MaxNonceEntries),
-		tcpAuth:      libknock.ServerConfig{ServerPort: rt.Port, Secrets: libknock.NewStaticSecretResolver(secrets), ReplayCache: libknock.NewMemoryReplayCache(rt.NonceCacheTTL), AuthTimeout: rt.AuthTimeout, TimeWindow: rt.AuthTimeWindow, MaxFrameSize: libknock.DefaultMaxFrameSize},
-		rate:         rate,
-		bans:         limits.NewBanTrackerWithLimit(rt.AuthFailBanTTL, rt.MaxTrackedIPs),
-		conns:        limits.NewConnections(rt.MaxGlobalConnections, rt.MaxConnectionsPerIP, rt.MaxConnectionsPerClient),
-		knockClients: clients,
+		rt:              rt,
+		fw:              fw,
+		log:             log,
+		metrics:         metrics.NewBuildInfo(),
+		knocks:          newKnockStore(),
+		nonces:          oldauth.NewNonceCacheWithLimit(rt.NonceCacheTTL, rt.MaxNonceEntries),
+		tcpAuth:         libknock.ServerConfig{ServerPort: rt.Port, Secrets: libknock.NewStaticSecretResolver(secrets), ReplayCache: libknock.NewMemoryReplayCache(rt.NonceCacheTTL), AuthTimeout: rt.AuthTimeout, TimeWindow: rt.AuthTimeWindow, MaxFrameSize: libknock.DefaultMaxFrameSize},
+		rate:            rate,
+		bans:            limits.NewBanTrackerWithLimit(rt.AuthFailBanTTL, rt.MaxTrackedIPs),
+		conns:           limits.NewConnections(rt.MaxGlobalConnections, rt.MaxConnectionsPerIP, rt.MaxConnectionsPerClient),
+		knockClients:    clients,
+		seqKnockClients: seqClients,
 	}, nil
 }
 

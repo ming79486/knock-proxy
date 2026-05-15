@@ -14,6 +14,7 @@ import (
 	"github.com/ming79486/knock-proxy/internal/relay"
 	"github.com/ming79486/knock-proxy/internal/secure"
 	"github.com/ming79486/libknock"
+	libseq "github.com/ming79486/libknock/knock"
 )
 
 func RunClient(ctx context.Context, opts ClientOptions) error {
@@ -154,10 +155,8 @@ func sendKnock(parent context.Context, rt config.ClientRuntime) error {
 			Secret:     rt.Secret,
 			ServerPort: rt.ServerPort,
 			TimeWindow: rt.KnockTimeWindow,
-			Sequence: knock.SequenceOptions{
-				Length: rt.SequenceLength, SlotSeconds: rt.SequenceSlot, PacketInterval: rt.SequenceInterval, MaxJitter: rt.SequenceJitter,
-			},
 		}
+		seqSendOpts := libSeqSendOptionsFromClient(rt, serverAddr)
 		var err error
 		switch rt.KnockMethod {
 		case "udp":
@@ -165,7 +164,7 @@ func sendKnock(parent context.Context, rt config.ClientRuntime) error {
 		case "udp-passive":
 			err = knock.SendUDPMethod(ctx, sendOpts, "udp-passive")
 		case "udp-seq", "udp-passive-seq":
-			err = knock.SendUDPSequence(ctx, sendOpts)
+			err = libseq.SendUDPSequence(ctx, seqSendOpts)
 		case "tcp-syn-seq":
 			if supportErr := knock.CheckClientSupport(rt.KnockMethod); supportErr != nil {
 				err = supportErr
