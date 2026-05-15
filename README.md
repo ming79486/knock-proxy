@@ -2,7 +2,7 @@
 
 中文 | [English](#english)
 
-`knock-proxy` 用端口敲门把公网 TCP 服务藏到防火墙后面。服务端默认 DROP 受保护端口；客户端先发送 knock，验证通过后服务端只对该来源 IP 打开短暂访问窗口，随后客户端连接同一 TCP 端口，完成 libknock binary auth frame v1 前置认证并把流量转发到本机 upstream。
+`knock-proxy` 用端口敲门把公网 TCP 服务藏到防火墙后面。服务端默认 DROP 受保护端口；客户端先发送 knock，验证通过后服务端只对该来源 IP 打开短暂访问窗口，随后客户端连接同一 TCP 端口，完成 TCP 前置认证并把流量转发到本机 upstream。
 
 它适合保护 SSH、RDP、数据库管理端口、Web 管理后台和自定义 TCP 管理服务。典型用法是在公网只暴露一个看起来始终 `filtered` 的端口，只有持有 client ID 与共享密钥的客户端才能敲门、认证并建立转发。
 
@@ -30,24 +30,6 @@
 - [English Overview](docs/README.en.md)
 - [English Configuration Reference](docs/config.en.md)
 - [English Deployment And Acceptance](docs/deployment.en.md)
-
-## 架构状态
-
-当前 `knock-proxy` 正在降级为 `github.com/ming79486/libknock` 的调用方：
-
-- TCP payload auth 主链由 `libknock.ServerAuth` / `libknock.ClientAuthWithInfo` 提供。
-- UDP knock、TCP SYN knock、`udp-seq` / `udp-passive-seq` / `tcp-syn-seq` 均由 `libknock/knock` 提供。
-- 本仓库不再保留旧 `internal/auth` / `internal/knock` 算法实现，只保留配置、CLI、firewall、relay、metrics 等产品层。
-- 配置读取、CLI、firewall、knock、relay、metrics 仍属于 `cmd/knock-proxy` 产品层。
-
-因为 `libknock` 当前是私有仓库，CI 或干净环境构建需要设置：
-
-```bash
-export GOPRIVATE=github.com/ming79486/libknock
-export GONOSUMDB=github.com/ming79486/libknock
-```
-
-GitHub Actions 需要仓库 secret `LIBKNOCK_READ_TOKEN`，且该 token 需要能读取 `github.com/ming79486/libknock`。
 
 ## 构建
 
@@ -154,7 +136,7 @@ It protects SSH, RDP, database administration ports, web admin panels, and custo
 - proxy / direct access modes
 - TCP SYN knock, UDP knock, udp-passive knock, and udp-seq / udp-passive-seq / tcp-syn-seq sequence knocks
 - Windows TCP-SYN knock: WinDivert (https://github.com/basil00/WinDivert/) preferred, Npcap fallback; UDP is recommended for fleets
-- libknock binary auth frame v1 for TCP auth; timestamp + nonce replay protection for UDP knock/TCP auth, multi-packet nonce sequences for udp-seq/udp-passive-seq, and time-slot HMAC for TCP SYN knock/tcp-syn-seq
+- TCP pre-authentication; timestamp + nonce replay protection for UDP knock/TCP auth, multi-packet nonce sequences for udp-seq/udp-passive-seq, and time-slot HMAC for TCP SYN knock/tcp-syn-seq
 - Optional ChaCha20-Poly1305 basic transport encryption
 - nftables, iptables, ipset-iptables, and script firewall backends
 - OpenWrt 23.x+ nftables/firewall4 support
