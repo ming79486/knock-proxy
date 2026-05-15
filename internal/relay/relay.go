@@ -4,7 +4,7 @@ import (
 	"net"
 	"time"
 
-	librelay "github.com/ming79486/libknock/relay"
+	librelay "github.com/libknock/libknock/relay"
 )
 
 type Stats = librelay.Stats

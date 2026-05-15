@@ -6,8 +6,8 @@ import (
 	"net/netip"
 	"time"
 
+	libfw "github.com/libknock/libknock/firewall"
 	cfg "github.com/ming79486/knock-proxy/internal/config"
-	libfw "github.com/ming79486/libknock/firewall"
 )
 
 type Backend interface {

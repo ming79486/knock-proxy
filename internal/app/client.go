@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/libknock/libknock"
+	"github.com/libknock/libknock/knock"
 	"github.com/ming79486/knock-proxy/internal/config"
 	"github.com/ming79486/knock-proxy/internal/logging"
 	"github.com/ming79486/knock-proxy/internal/relay"
 	"github.com/ming79486/knock-proxy/internal/secure"
-	"github.com/ming79486/libknock"
-	"github.com/ming79486/libknock/knock"
 )
 
 func RunClient(ctx context.Context, opts ClientOptions) error {

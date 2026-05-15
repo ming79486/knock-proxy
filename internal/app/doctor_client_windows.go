@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/libknock/libknock/knock"
 	"github.com/ming79486/knock-proxy/internal/config"
-	"github.com/ming79486/libknock/knock"
 	"golang.org/x/sys/windows"
 )
 

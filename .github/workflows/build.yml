@@ -7,8 +7,8 @@ permissions:
   contents: write
 
 env:
-  GOPRIVATE: github.com/ming79486/libknock
-  GONOSUMDB: github.com/ming79486/libknock
+  GOPRIVATE: github.com/libknock/libknock
+  GONOSUMDB: github.com/libknock/libknock
 
 jobs:
   test:
@@ -23,7 +23,7 @@ jobs:
           LIBKNOCK_READ_TOKEN: ${{ secrets.LIBKNOCK_READ_TOKEN }}
         run: |
           if [ -z "$LIBKNOCK_READ_TOKEN" ]; then
-            echo "::error::Set repository secret LIBKNOCK_READ_TOKEN with read access to github.com/ming79486/libknock"
+            echo "::error::Set repository secret LIBKNOCK_READ_TOKEN with read access to github.com/libknock/libknock"
             exit 1
           fi
           git config --global url."https://x-access-token:${LIBKNOCK_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -64,7 +64,7 @@ jobs:
           LIBKNOCK_READ_TOKEN: ${{ secrets.LIBKNOCK_READ_TOKEN }}
         run: |
           if [ -z "$LIBKNOCK_READ_TOKEN" ]; then
-            echo "::error::Set repository secret LIBKNOCK_READ_TOKEN with read access to github.com/ming79486/libknock"
+            echo "::error::Set repository secret LIBKNOCK_READ_TOKEN with read access to github.com/libknock/libknock"
             exit 1
           fi
           git config --global url."https://x-access-token:${LIBKNOCK_READ_TOKEN}@github.com/".insteadOf "https://github.com/"

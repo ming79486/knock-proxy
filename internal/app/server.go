@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/libknock/libknock"
+	"github.com/libknock/libknock/knock"
 	"github.com/ming79486/knock-proxy/internal/config"
 	"github.com/ming79486/knock-proxy/internal/firewall"
 	"github.com/ming79486/knock-proxy/internal/limits"
@@ -17,8 +19,6 @@ import (
 	"github.com/ming79486/knock-proxy/internal/metrics"
 	"github.com/ming79486/knock-proxy/internal/relay"
 	"github.com/ming79486/knock-proxy/internal/secure"
-	"github.com/ming79486/libknock"
-	"github.com/ming79486/libknock/knock"
 )
 
 func RunServer(ctx context.Context, opts ServerOptions) error {

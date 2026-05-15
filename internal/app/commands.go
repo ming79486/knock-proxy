@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/libknock/libknock"
+	"github.com/libknock/libknock/knock"
 	"github.com/ming79486/knock-proxy/internal/config"
 	"github.com/ming79486/knock-proxy/internal/firewall"
 	"github.com/ming79486/knock-proxy/internal/secure"
-	"github.com/ming79486/libknock"
-	"github.com/ming79486/libknock/knock"
 )
 
 func RunKnock(ctx context.Context, opts KnockOptions) error {
