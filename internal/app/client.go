@@ -155,27 +155,7 @@ func sendKnock(parent context.Context, rt config.ClientRuntime) error {
 			ServerPort: rt.ServerPort,
 			TimeWindow: rt.KnockTimeWindow,
 		}
-		var err error
-		switch rt.KnockMethod {
-		case "udp":
-			err = knock.SendUDPMethod(ctx, sendOpts, "udp")
-		case "udp-passive":
-			err = knock.SendUDPMethod(ctx, sendOpts, "udp-passive")
-		case "udp-seq", "udp-passive-seq":
-			err = knock.SendUDPSequence(ctx, sendOpts)
-		case "tcp-syn-seq":
-			if supportErr := knock.CheckClientSupport(rt.KnockMethod); supportErr != nil {
-				err = supportErr
-				break
-			}
-			err = knock.SendSYNSequence(ctx, sendOpts)
-		default:
-			if supportErr := knock.CheckClientSupport(rt.KnockMethod); supportErr != nil {
-				err = supportErr
-				break
-			}
-			err = knock.Send(ctx, sendOpts)
-		}
+		err := knock.SendMethod(ctx, rt.KnockMethod, sendOpts)
 		cancel()
 		if err == nil {
 			time.Sleep(250 * time.Millisecond)
