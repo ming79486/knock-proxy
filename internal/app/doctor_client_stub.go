@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ming79486/knock-proxy/internal/config"
-	"github.com/ming79486/knock-proxy/internal/knock"
+	"github.com/ming79486/libknock/knock"
 )
 
 func printPlatformClientDoctor(rt config.ClientRuntime) {

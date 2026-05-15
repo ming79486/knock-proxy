@@ -10,17 +10,15 @@ import (
 	"sync"
 	"time"
 
-	oldauth "github.com/ming79486/knock-proxy/internal/auth"
 	"github.com/ming79486/knock-proxy/internal/config"
 	"github.com/ming79486/knock-proxy/internal/firewall"
-	"github.com/ming79486/knock-proxy/internal/knock"
 	"github.com/ming79486/knock-proxy/internal/limits"
 	"github.com/ming79486/knock-proxy/internal/logging"
 	"github.com/ming79486/knock-proxy/internal/metrics"
 	"github.com/ming79486/knock-proxy/internal/relay"
 	"github.com/ming79486/knock-proxy/internal/secure"
 	"github.com/ming79486/libknock"
-	libseq "github.com/ming79486/libknock/knock"
+	"github.com/ming79486/libknock/knock"
 )
 
 func RunServer(ctx context.Context, opts ServerOptions) error {
@@ -98,20 +96,19 @@ func RunServer(ctx context.Context, opts ServerOptions) error {
 			AllowPacket:   state.allowKnockPacket,
 			InvalidPacket: state.invalidKnockPacket,
 		}
-		seqListenOpts := libSeqListenOptions(rt, state)
 		switch rt.KnockMethod {
 		case "tcp-syn":
 			knockErr <- knock.Listen(ctx, listenOpts, state.handleKnock)
 		case "udp":
 			knockErr <- knock.ListenUDP(ctx, rt.UDPListen, listenOpts, state.handleKnock)
 		case "udp-seq":
-			knockErr <- libseq.ListenUDPSequence(ctx, rt.UDPListen, seqListenOpts, handleLibSeqKnock(state))
+			knockErr <- knock.ListenUDPSequence(ctx, rt.UDPListen, listenOpts, state.handleKnock)
 		case "udp-passive":
 			knockErr <- knock.ListenUDPPassive(ctx, listenOpts, state.handleKnock)
 		case "udp-passive-seq":
-			knockErr <- libseq.ListenUDPPassiveSequence(ctx, seqListenOpts, handleLibSeqKnock(state))
+			knockErr <- knock.ListenUDPPassiveSequence(ctx, listenOpts, state.handleKnock)
 		case "tcp-syn-seq":
-			knockErr <- libseq.ListenSYNSequence(ctx, seqListenOpts, handleLibSeqKnock(state))
+			knockErr <- knock.ListenSYNSequence(ctx, listenOpts, state.handleKnock)
 		default:
 			knockErr <- fmt.Errorf("knock method %q is not implemented", rt.KnockMethod)
 		}
@@ -257,18 +254,17 @@ func validateRuntimeStartup(ctx context.Context, rt config.ServerRuntime, checkU
 }
 
 type serverState struct {
-	rt              config.ServerRuntime
-	fw              firewall.Backend
-	log             *logging.Logger
-	metrics         *metrics.Registry
-	knocks          *knockStore
-	nonces          *oldauth.NonceCache
-	tcpAuth         libknock.ServerConfig
-	rate            *limits.RateLimiter
-	bans            *limits.BanTracker
-	conns           *limits.Connections
-	knockClients    []oldauth.ClientSecret
-	seqKnockClients []libseq.ClientSecret
+	rt           config.ServerRuntime
+	fw           firewall.Backend
+	log          *logging.Logger
+	metrics      *metrics.Registry
+	knocks       *knockStore
+	nonces       libknock.ReplayCache
+	tcpAuth      libknock.ServerConfig
+	rate         *limits.RateLimiter
+	bans         *limits.BanTracker
+	conns        *limits.Connections
+	knockClients []knock.ClientSecret
 }
 
 func newServerState(rt config.ServerRuntime, fw firewall.Backend, log *logging.Logger) (*serverState, error) {
@@ -276,27 +272,24 @@ func newServerState(rt config.ServerRuntime, fw firewall.Backend, log *logging.L
 	if err != nil {
 		return nil, err
 	}
-	clients := make([]oldauth.ClientSecret, 0, len(rt.Clients))
-	seqClients := make([]libseq.ClientSecret, 0, len(rt.Clients))
+	clients := make([]knock.ClientSecret, 0, len(rt.Clients))
 	secrets := make(map[string][]byte, len(rt.Clients))
 	for _, client := range rt.Clients {
-		clients = append(clients, oldauth.ClientSecret{ClientID: client.ID, Secret: client.Secret})
-		seqClients = append(seqClients, libseq.ClientSecret{ClientID: client.ID, Secret: client.Secret})
+		clients = append(clients, knock.ClientSecret{ClientID: client.ID, Secret: client.Secret})
 		secrets[client.ID] = append([]byte(nil), client.Secret...)
 	}
 	return &serverState{
-		rt:              rt,
-		fw:              fw,
-		log:             log,
-		metrics:         metrics.NewBuildInfo(),
-		knocks:          newKnockStore(),
-		nonces:          oldauth.NewNonceCacheWithLimit(rt.NonceCacheTTL, rt.MaxNonceEntries),
-		tcpAuth:         libknock.ServerConfig{ServerPort: rt.Port, Secrets: libknock.NewStaticSecretResolver(secrets), ReplayCache: libknock.NewMemoryReplayCache(rt.NonceCacheTTL), AuthTimeout: rt.AuthTimeout, TimeWindow: rt.AuthTimeWindow, MaxFrameSize: libknock.DefaultMaxFrameSize},
-		rate:            rate,
-		bans:            limits.NewBanTrackerWithLimit(rt.AuthFailBanTTL, rt.MaxTrackedIPs),
-		conns:           limits.NewConnections(rt.MaxGlobalConnections, rt.MaxConnectionsPerIP, rt.MaxConnectionsPerClient),
-		knockClients:    clients,
-		seqKnockClients: seqClients,
+		rt:           rt,
+		fw:           fw,
+		log:          log,
+		metrics:      metrics.NewBuildInfo(),
+		knocks:       newKnockStore(),
+		nonces:       libknock.NewMemoryReplayCache(rt.NonceCacheTTL),
+		tcpAuth:      libknock.ServerConfig{ServerPort: rt.Port, Secrets: libknock.NewStaticSecretResolver(secrets), ReplayCache: libknock.NewMemoryReplayCache(rt.NonceCacheTTL), AuthTimeout: rt.AuthTimeout, TimeWindow: rt.AuthTimeWindow, MaxFrameSize: libknock.DefaultMaxFrameSize},
+		rate:         rate,
+		bans:         limits.NewBanTrackerWithLimit(rt.AuthFailBanTTL, rt.MaxTrackedIPs),
+		conns:        limits.NewConnections(rt.MaxGlobalConnections, rt.MaxConnectionsPerIP, rt.MaxConnectionsPerClient),
+		knockClients: clients,
 	}, nil
 }
 
@@ -335,7 +328,7 @@ func (s *serverState) handleKnock(ev knock.Event) {
 		return
 	}
 	if ev.Nonce != "" {
-		if err := s.nonces.Add(ev.ClientID, ev.Nonce, time.Now()); err != nil {
+		if err := s.nonces.CheckAndMark(ev.ClientID, []byte(ev.Nonce), time.Now().Unix()); err != nil {
 			s.log.Event("knock rejected", logging.F("src", ev.SourceIP), logging.F("client_id", ev.ClientID), logging.F("reason", "replayed_nonce"))
 			s.metrics.Inc("knock_proxy_knock_rejected_total", metrics.Reason("replayed_nonce"))
 			return

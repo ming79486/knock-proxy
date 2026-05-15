@@ -36,8 +36,8 @@
 当前 `knock-proxy` 正在降级为 `github.com/ming79486/libknock` 的调用方：
 
 - TCP payload auth 主链由 `libknock.ServerAuth` / `libknock.ClientAuthWithInfo` 提供。
-- `udp-seq` / `udp-passive-seq` 与服务端 `tcp-syn-seq` listener 已改由 `libknock/knock` 提供。
-- 旧 `internal/auth` 仍保留给 UDP knock、TCP SYN knock、以及 Windows `tcp-syn-seq` 发送兼容路径使用。
+- UDP knock、TCP SYN knock、`udp-seq` / `udp-passive-seq` / `tcp-syn-seq` 均由 `libknock/knock` 提供。
+- 本仓库不再保留旧 `internal/auth` / `internal/knock` 算法实现，只保留配置、CLI、firewall、relay、metrics 等产品层。
 - 配置读取、CLI、firewall、knock、relay、metrics 仍属于 `cmd/knock-proxy` 产品层。
 
 因为 `libknock` 当前是私有仓库，CI 或干净环境构建需要设置：
