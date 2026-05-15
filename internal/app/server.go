@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -9,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ming79486/knock-proxy/internal/auth"
+	oldauth "github.com/ming79486/knock-proxy/internal/auth"
 	"github.com/ming79486/knock-proxy/internal/config"
 	"github.com/ming79486/knock-proxy/internal/firewall"
 	"github.com/ming79486/knock-proxy/internal/knock"
@@ -18,6 +19,7 @@ import (
 	"github.com/ming79486/knock-proxy/internal/metrics"
 	"github.com/ming79486/knock-proxy/internal/relay"
 	"github.com/ming79486/knock-proxy/internal/secure"
+	"github.com/ming79486/libknock"
 )
 
 func RunServer(ctx context.Context, opts ServerOptions) error {
@@ -262,11 +264,12 @@ type serverState struct {
 	log          *logging.Logger
 	metrics      *metrics.Registry
 	knocks       *knockStore
-	nonces       *auth.NonceCache
+	nonces       *oldauth.NonceCache
+	tcpAuth      libknock.ServerConfig
 	rate         *limits.RateLimiter
 	bans         *limits.BanTracker
 	conns        *limits.Connections
-	knockClients []auth.ClientSecret
+	knockClients []oldauth.ClientSecret
 }
 
 func newServerState(rt config.ServerRuntime, fw firewall.Backend, log *logging.Logger) (*serverState, error) {
@@ -274,9 +277,11 @@ func newServerState(rt config.ServerRuntime, fw firewall.Backend, log *logging.L
 	if err != nil {
 		return nil, err
 	}
-	clients := make([]auth.ClientSecret, 0, len(rt.Clients))
+	clients := make([]oldauth.ClientSecret, 0, len(rt.Clients))
+	secrets := make(map[string][]byte, len(rt.Clients))
 	for _, client := range rt.Clients {
-		clients = append(clients, auth.ClientSecret{ClientID: client.ID, Secret: client.Secret})
+		clients = append(clients, oldauth.ClientSecret{ClientID: client.ID, Secret: client.Secret})
+		secrets[client.ID] = append([]byte(nil), client.Secret...)
 	}
 	return &serverState{
 		rt:           rt,
@@ -284,7 +289,8 @@ func newServerState(rt config.ServerRuntime, fw firewall.Backend, log *logging.L
 		log:          log,
 		metrics:      metrics.NewBuildInfo(),
 		knocks:       newKnockStore(),
-		nonces:       auth.NewNonceCacheWithLimit(rt.NonceCacheTTL, rt.MaxNonceEntries),
+		nonces:       oldauth.NewNonceCacheWithLimit(rt.NonceCacheTTL, rt.MaxNonceEntries),
+		tcpAuth:      libknock.ServerConfig{ServerPort: rt.Port, Secrets: libknock.NewStaticSecretResolver(secrets), ReplayCache: libknock.NewMemoryReplayCache(rt.NonceCacheTTL), AuthTimeout: rt.AuthTimeout, TimeWindow: rt.AuthTimeWindow, MaxFrameSize: libknock.DefaultMaxFrameSize},
 		rate:         rate,
 		bans:         limits.NewBanTrackerWithLimit(rt.AuthFailBanTTL, rt.MaxTrackedIPs),
 		conns:        limits.NewConnections(rt.MaxGlobalConnections, rt.MaxConnectionsPerIP, rt.MaxConnectionsPerClient),
@@ -397,53 +403,45 @@ func (s *serverState) handleConn(parent context.Context, conn net.Conn) {
 		return
 	}
 
-	_ = conn.SetReadDeadline(time.Now().Add(s.rt.AuthTimeout))
-	frame, err := auth.ReadFrame(conn)
-	_ = conn.SetReadDeadline(time.Time{})
+	authConn, peer, err := libknock.ServerAuth(parent, conn, s.tcpAuth)
 	if err != nil {
-		s.recordFailure(srcIP, "", "tcp_auth_timeout", err)
+		s.recordFailure(srcIP, "", reasonFromAuthError(err), err)
 		return
 	}
-	if frame.ClientID != "" && s.bans.IsBanned("client:"+frame.ClientID, time.Now()) {
-		s.recordFailure(srcIP, frame.ClientID, "rate_limited", nil)
+	conn = authConn
+	clientID := peer.ClientID
+	if s.bans.IsBanned("client:"+clientID, time.Now()) {
+		s.recordFailure(srcIP, clientID, "rate_limited", nil)
 		return
 	}
 
-	client, ok := s.rt.Clients[frame.ClientID]
+	client, ok := s.rt.Clients[clientID]
 	if !ok {
-		s.recordFailure(srcIP, frame.ClientID, "unknown_client_id", nil)
+		s.recordFailure(srcIP, clientID, "unknown_client_id", nil)
 		return
 	}
 	now := time.Now()
-	if err := auth.ValidateFrame(frame, client.Secret, s.rt.Port, s.rt.TransportEncrypted, now, s.rt.AuthTimeWindow); err != nil {
-		s.recordFailure(srcIP, frame.ClientID, reasonFromAuthError(err), err)
-		return
-	}
-	if ok, err := s.hasRecentAccess(parent, srcIP, frame.ClientID, now); err != nil {
-		s.recordFailure(srcIP, frame.ClientID, "tcp_auth_failed", err)
+	if ok, err := s.hasRecentAccess(parent, srcIP, clientID, now); err != nil {
+		s.recordFailure(srcIP, clientID, "tcp_auth_failed", err)
 		return
 	} else if !ok {
-		s.recordFailure(srcIP, frame.ClientID, "tcp_auth_failed", errors.New("source IP has no recent accepted knock or firewall allow entry"))
+		s.recordFailure(srcIP, clientID, "tcp_auth_failed", errors.New("source IP has no recent accepted knock or firewall allow entry"))
 		return
 	}
-	if err := s.nonces.Add(frame.ClientID, frame.Nonce, time.Now()); err != nil {
-		s.recordFailure(srcIP, frame.ClientID, "replayed_nonce", err)
-		return
-	}
-	if err := s.conns.AcquireClient(frame.ClientID, client.MaxConnections); err != nil {
-		s.log.Event("tcp auth rejected", logging.F("src", srcIP), logging.F("client_id", frame.ClientID), logging.F("reason", "connection_limit_exceeded"))
+	if err := s.conns.AcquireClient(clientID, client.MaxConnections); err != nil {
+		s.log.Event("tcp auth rejected", logging.F("src", srcIP), logging.F("client_id", clientID), logging.F("reason", "connection_limit_exceeded"))
 		s.metrics.Inc("knock_proxy_tcp_auth_rejected_total", metrics.Reason("connection_limit_exceeded"))
 		return
 	}
-	defer s.conns.ReleaseClient(frame.ClientID)
+	defer s.conns.ReleaseClient(clientID)
 
 	if s.rt.RemoveAfterAuth {
-		shouldRevoke := s.knocks.removeOne(srcIP, frame.ClientID, time.Now())
+		shouldRevoke := s.knocks.removeOne(srcIP, clientID, time.Now())
 		if shouldRevoke {
 			revokeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			s.metrics.AddGauge("knock_proxy_active_allow_entries", nil, -1)
 			if err := s.fw.Revoke(revokeCtx, srcIP, s.rt.Port); err != nil {
-				s.log.Event("firewall revoke failed", logging.F("src", srcIP), logging.F("client_id", frame.ClientID), logging.F("backend", s.fw.Name()), logging.F("error", err))
+				s.log.Event("firewall revoke failed", logging.F("src", srcIP), logging.F("client_id", clientID), logging.F("backend", s.fw.Name()), logging.F("error", err))
 			}
 			cancel()
 		}
@@ -453,7 +451,7 @@ func (s *serverState) handleConn(parent context.Context, conn net.Conn) {
 	if err != nil {
 		s.log.Event("upstream connect failed",
 			logging.F("src", srcIP),
-			logging.F("client_id", frame.ClientID),
+			logging.F("client_id", clientID),
 			logging.F("reason", "upstream_connect_failed"),
 			logging.F("upstream", s.rt.Upstream),
 			logging.F("error", err),
@@ -465,14 +463,14 @@ func (s *serverState) handleConn(parent context.Context, conn net.Conn) {
 
 	relayConn := conn
 	if s.rt.TransportEncrypted {
-		relayConn, err = secure.Wrap(conn, client.Secret, frame.ClientID, frame.Nonce, s.rt.Port, secure.ServerRole)
+		relayConn, err = secure.Wrap(conn, client.Secret, clientID, base64.RawStdEncoding.EncodeToString(peer.Nonce), s.rt.Port, secure.ServerRole)
 		if err != nil {
-			s.recordFailure(srcIP, frame.ClientID, "tcp_auth_failed", err)
+			s.recordFailure(srcIP, clientID, "tcp_auth_failed", err)
 			return
 		}
 	}
 
-	s.log.Event("tcp auth accepted", logging.F("src", srcIP), logging.F("client_id", frame.ClientID), logging.F("upstream", s.rt.Upstream), logging.F("encryption", s.rt.TransportEncrypted))
+	s.log.Event("tcp auth accepted", logging.F("src", srcIP), logging.F("client_id", clientID), logging.F("upstream", s.rt.Upstream), logging.F("encryption", s.rt.TransportEncrypted))
 	s.metrics.Inc("knock_proxy_tcp_auth_accepted_total", nil)
 	s.metrics.AddGauge("knock_proxy_active_connections", nil, 1)
 	stats := relay.Bidirectional(relayConn, upstream, s.rt.IdleTimeout)
@@ -482,7 +480,7 @@ func (s *serverState) handleConn(parent context.Context, conn net.Conn) {
 	s.metrics.Add("knock_proxy_session_tx_bytes_total", nil, float64(stats.TX))
 	s.log.Event("session closed",
 		logging.F("src", srcIP),
-		logging.F("client_id", frame.ClientID),
+		logging.F("client_id", clientID),
 		logging.F("duration", int(time.Since(start).Seconds())),
 		logging.F("rx", stats.RX),
 		logging.F("tx", stats.TX),
@@ -610,9 +608,15 @@ func startMetricsServer(ctx context.Context, rt config.ServerRuntime, registry *
 
 func reasonFromAuthError(err error) string {
 	switch {
-	case errors.Is(err, auth.ErrExpiredTimestamp):
+	case errors.Is(err, libknock.ErrTimeSkew):
 		return "expired_timestamp"
-	case errors.Is(err, auth.ErrInvalidHMAC):
+	case errors.Is(err, libknock.ErrReplayDetected):
+		return "replayed_nonce"
+	case errors.Is(err, libknock.ErrUnknownClient):
+		return "unknown_client_id"
+	case errors.Is(err, libknock.ErrFrameTooLarge), errors.Is(err, libknock.ErrInvalidFrame):
+		return "invalid_frame"
+	case errors.Is(err, libknock.ErrAuthFailed):
 		return "invalid_hmac"
 	default:
 		return "tcp_auth_failed"

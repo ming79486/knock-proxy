@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ming79486/knock-proxy/internal/auth"
 	"github.com/ming79486/knock-proxy/internal/config"
 	"github.com/ming79486/knock-proxy/internal/firewall"
 	"github.com/ming79486/knock-proxy/internal/knock"
 	"github.com/ming79486/knock-proxy/internal/secure"
+	"github.com/ming79486/libknock"
 )
 
 func RunKnock(ctx context.Context, opts KnockOptions) error {
@@ -133,18 +133,14 @@ func RunProbe(ctx context.Context, opts ProbeOptions) error {
 	}
 	defer conn.Close()
 	fmt.Printf("[OK] tcp connected: %s\n", time.Since(start).Round(time.Millisecond))
-	frame, err := auth.NewFrame(rt.ClientID, rt.Secret, rt.ServerPort, rt.TransportEncrypted, time.Now())
+	peer, err := libknock.ClientAuthWithInfo(ctx, conn, libknock.ClientConfig{ClientID: rt.ClientID, Secret: rt.Secret, ServerPort: rt.ServerPort, AuthTimeout: rt.AuthTimeout})
 	if err != nil {
-		return fmt.Errorf("[FAIL] auth_frame_failed: %w", err)
-	}
-	_ = conn.SetDeadline(time.Now().Add(rt.AuthTimeout))
-	if err := auth.WriteFrame(conn, frame); err != nil {
 		return fmt.Errorf("[FAIL] tcp_auth_write_failed: %w", err)
 	}
 	fmt.Printf("[OK] tcp auth frame sent: %s\n", time.Since(start).Round(time.Millisecond))
 	_ = conn.SetDeadline(time.Time{})
 	if rt.TransportEncrypted {
-		conn, err = secure.Wrap(conn, rt.Secret, rt.ClientID, frame.Nonce, rt.ServerPort, secure.ClientRole)
+		conn, err = secure.Wrap(conn, rt.Secret, rt.ClientID, base64.RawStdEncoding.EncodeToString(peer.Nonce), rt.ServerPort, secure.ClientRole)
 		if err != nil {
 			return fmt.Errorf("[FAIL] transport_encryption_setup_failed: %w", err)
 		}

@@ -6,6 +6,10 @@ on:
 permissions:
   contents: write
 
+env:
+  GOPRIVATE: github.com/ming79486/libknock
+  GONOSUMDB: github.com/ming79486/libknock
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -14,6 +18,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.x'
+      - name: Configure private libknock access
+        env:
+          LIBKNOCK_READ_TOKEN: ${{ secrets.LIBKNOCK_READ_TOKEN }}
+        run: |
+          if [ -z "$LIBKNOCK_READ_TOKEN" ]; then
+            echo "::error::Set repository secret LIBKNOCK_READ_TOKEN with read access to github.com/ming79486/libknock"
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${LIBKNOCK_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
       - run: go test ./...
 
   build:
@@ -46,6 +59,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.x'
+      - name: Configure private libknock access
+        env:
+          LIBKNOCK_READ_TOKEN: ${{ secrets.LIBKNOCK_READ_TOKEN }}
+        run: |
+          if [ -z "$LIBKNOCK_READ_TOKEN" ]; then
+            echo "::error::Set repository secret LIBKNOCK_READ_TOKEN with read access to github.com/ming79486/libknock"
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${LIBKNOCK_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}

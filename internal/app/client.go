@@ -2,17 +2,18 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"sync"
 	"time"
 
-	"github.com/ming79486/knock-proxy/internal/auth"
 	"github.com/ming79486/knock-proxy/internal/config"
 	"github.com/ming79486/knock-proxy/internal/knock"
 	"github.com/ming79486/knock-proxy/internal/logging"
 	"github.com/ming79486/knock-proxy/internal/relay"
 	"github.com/ming79486/knock-proxy/internal/secure"
+	"github.com/ming79486/libknock"
 )
 
 func RunClient(ctx context.Context, opts ClientOptions) error {
@@ -110,20 +111,14 @@ func handleClientConn(parent context.Context, rt config.ClientRuntime, log *logg
 	}
 	defer remote.Close()
 
-	frame, err := auth.NewFrame(rt.ClientID, rt.Secret, rt.ServerPort, rt.TransportEncrypted, time.Now())
+	peer, err := libknock.ClientAuthWithInfo(parent, remote, libknock.ClientConfig{ClientID: rt.ClientID, Secret: rt.Secret, ServerPort: rt.ServerPort, AuthTimeout: rt.AuthTimeout})
 	if err != nil {
-		log.Event("auth frame failed", logging.F("error", err))
-		return
-	}
-	_ = remote.SetDeadline(time.Now().Add(rt.AuthTimeout))
-	if err := auth.WriteFrame(remote, frame); err != nil {
 		log.Event("auth write failed", logging.F("server", rt.ServerAddr), logging.F("error", err))
 		return
 	}
-	_ = remote.SetDeadline(time.Time{})
 
 	if rt.TransportEncrypted {
-		remote, err = secure.Wrap(remote, rt.Secret, rt.ClientID, frame.Nonce, rt.ServerPort, secure.ClientRole)
+		remote, err = secure.Wrap(remote, rt.Secret, rt.ClientID, base64.RawStdEncoding.EncodeToString(peer.Nonce), rt.ServerPort, secure.ClientRole)
 		if err != nil {
 			log.Event("transport encryption failed", logging.F("client_id", rt.ClientID), logging.F("error", err))
 			return
