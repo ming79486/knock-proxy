@@ -152,6 +152,8 @@ type LimitsConfig struct {
 	MaxGlobalConnections    int    `yaml:"max_global_connections"`
 	MaxConnectionsPerIP     int    `yaml:"max_connections_per_ip"`
 	MaxConnectionsPerClient int    `yaml:"max_connections_per_client"`
+	MaxPendingAuth          int    `yaml:"max_pending_auth"`
+	MaxAuthWorkers          int    `yaml:"max_auth_workers"`
 	KnockRatePerIP          string `yaml:"knock_rate_per_ip"`
 	AuthFailBanSeconds      int    `yaml:"auth_fail_ban_seconds"`
 	MaxTrackedIPs           int    `yaml:"max_tracked_ips"`
@@ -230,6 +232,8 @@ type ServerRuntime struct {
 	MaxGlobalConnections    int
 	MaxConnectionsPerIP     int
 	MaxConnectionsPerClient int
+	MaxPendingAuth          int
+	MaxAuthWorkers          int
 	KnockRatePerIP          string
 	AuthFailBanTTL          time.Duration
 	TransportEncrypted      bool
@@ -559,6 +563,8 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 		MaxGlobalConnections:    defaultInt(c.Limits.MaxGlobalConnections, 1024),
 		MaxConnectionsPerIP:     defaultInt(c.Limits.MaxConnectionsPerIP, 32),
 		MaxConnectionsPerClient: defaultInt(c.Limits.MaxConnectionsPerClient, 16),
+		MaxPendingAuth:          defaultInt(c.Limits.MaxPendingAuth, 128),
+		MaxAuthWorkers:          defaultInt(c.Limits.MaxAuthWorkers, 32),
 		KnockRatePerIP:          defaultString(c.Limits.KnockRatePerIP, "10/10s"),
 		AuthFailBanTTL:          seconds(defaultInt(c.Limits.AuthFailBanSeconds, 300)),
 		TransportEncrypted:      c.Transport.Encryption,

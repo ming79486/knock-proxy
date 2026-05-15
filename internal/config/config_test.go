@@ -174,3 +174,27 @@ func TestServerRuntimeRejectsBadUpstreamAddress(t *testing.T) {
 		t.Fatal("expected malformed upstream to be rejected")
 	}
 }
+
+func TestServerRuntimeAuthStageLimitDefaultsAndOverrides(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Mode = ModeServer
+	cfg.Server.TCPListen = "0.0.0.0:443"
+	cfg.Server.Upstream = "127.0.0.1:22"
+	cfg.Auth.Clients = []AuthClient{{ClientID: "client-001", Secret: "1234567890123456"}}
+	rt, err := cfg.ServerRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.MaxPendingAuth != 128 || rt.MaxAuthWorkers != 32 {
+		t.Fatalf("auth stage defaults = %d/%d, want 128/32", rt.MaxPendingAuth, rt.MaxAuthWorkers)
+	}
+	cfg.Limits.MaxPendingAuth = 7
+	cfg.Limits.MaxAuthWorkers = 3
+	rt, err = cfg.ServerRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.MaxPendingAuth != 7 || rt.MaxAuthWorkers != 3 {
+		t.Fatalf("auth stage overrides = %d/%d, want 7/3", rt.MaxPendingAuth, rt.MaxAuthWorkers)
+	}
+}

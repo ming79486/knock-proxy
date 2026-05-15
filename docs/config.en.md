@@ -188,6 +188,8 @@ The authentication frame remains plaintext JSON and is HMAC-protected. Applicati
 | `max_global_connections` | `1024` | Max global concurrent connections. |
 | `max_connections_per_ip` | `32` | Max concurrent connections per source IP. |
 | `max_connections_per_client` | `16` | Max concurrent connections per client ID. |
+| `max_pending_auth` | `128` | Max unauthenticated/auth-stage TCP connections waiting for authentication workers. |
+| `max_auth_workers` | `32` | Max concurrent TCP authentication workers before a connection enters the relay/direct path. |
 | `knock_rate_per_ip` | `10/10s` | Knock rate limit per source IP. |
 | `auth_fail_ban_seconds` | `300` | Temporary ban duration after repeated authentication failures. |
 | `max_tracked_ips` | `10000` | Global capacity limit for per-IP rate/ban tracking maps. |

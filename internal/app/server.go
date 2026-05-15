@@ -120,14 +120,27 @@ func RunServer(ctx context.Context, opts ServerOptions) error {
 		_ = listener.Close()
 	}()
 
+	pending := make(chan net.Conn, rt.MaxPendingAuth)
 	var wg sync.WaitGroup
+	for range rt.MaxAuthWorkers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for conn := range pending {
+				state.handleConn(ctx, conn)
+			}
+		}()
+	}
+	defer func() {
+		close(pending)
+		wg.Wait()
+	}()
 	for {
 		select {
 		case err := <-knockErr:
 			if err != nil && ctx.Err() == nil {
 				return fmt.Errorf("knock listener failed: %w", err)
 			}
-			wg.Wait()
 			return nil
 		default:
 		}
@@ -135,27 +148,28 @@ func RunServer(ctx context.Context, opts ServerOptions) error {
 		conn, err := listener.Accept()
 		if err != nil {
 			if ctx.Err() != nil {
-				wg.Wait()
 				return nil
 			}
 			select {
 			case err := <-knockErr:
 				if err != nil {
-					wg.Wait()
 					return fmt.Errorf("knock listener failed: %w", err)
 				}
-				wg.Wait()
 				return nil
 			default:
 			}
 			log.Event("server accept failed", logging.F("error", err))
 			continue
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			state.handleConn(ctx, conn)
-		}()
+		select {
+		case pending <- conn:
+		case <-ctx.Done():
+			_ = conn.Close()
+			return nil
+		default:
+			_ = conn.Close()
+			log.Event("server auth queue full", logging.F("remote", conn.RemoteAddr()))
+		}
 	}
 }
 
@@ -328,7 +342,7 @@ func (s *serverState) handleKnock(ev knock.Event) {
 		return
 	}
 	if ev.Nonce != "" {
-		if err := s.nonces.CheckAndMark(ev.ClientID, []byte(ev.Nonce), time.Now().Unix()); err != nil {
+		if err := s.nonces.CheckAndMark(ev.ClientID, []byte(ev.Nonce)); err != nil {
 			s.log.Event("knock rejected", logging.F("src", ev.SourceIP), logging.F("client_id", ev.ClientID), logging.F("reason", "replayed_nonce"))
 			s.metrics.Inc("knock_proxy_knock_rejected_total", metrics.Reason("replayed_nonce"))
 			return

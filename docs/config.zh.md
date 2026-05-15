@@ -188,6 +188,8 @@ IPv6 ipset 依赖 `ip6tables`。
 | `max_global_connections` | `1024` | 全局最大并发连接数。 |
 | `max_connections_per_ip` | `32` | 单来源 IP 最大并发。 |
 | `max_connections_per_client` | `16` | 单 client_id 最大并发。 |
+| `max_pending_auth` | `128` | 等待认证 worker 处理的未认证 / 认证阶段 TCP 连接上限。 |
+| `max_auth_workers` | `32` | TCP 认证阶段最大并发 worker 数，认证通过后才进入 relay/direct 路径。 |
 | `knock_rate_per_ip` | `10/10s` | 单 IP knock 限流。 |
 | `auth_fail_ban_seconds` | `300` | 认证失败自动封禁秒数。 |
 | `max_tracked_ips` | `10000` | 单 IP 限流/封禁跟踪 map 的全局容量上限。 |
