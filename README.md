@@ -249,4 +249,4 @@ When WinDivert is unavailable, knock-proxy falls back to Npcap `Packet.dll`.
 
 ## License
 
-This project is licensed under the Elastic License 2.0. See [LICENSE](LICENSE).
+This project is licensed under the Business Source License 1.1. See [LICENSE](LICENSE).
