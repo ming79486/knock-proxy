@@ -68,7 +68,7 @@ func Detect(c cfg.FirewallConfig) (string, error)         { return libfw.Detect(
 
 func convert(c cfg.FirewallConfig) libfw.Config {
 	return libfw.Config{
-		Backend: c.Backend, Port: c.Port, DefaultAction: c.DefaultAction, AllowSeconds: c.AllowSeconds, DropUDPKnockPort: c.DropUDPKnockPort, UDPKnockPort: c.UDPKnockPort,
+		Backend: c.Backend, Port: c.Port, AllowSeconds: c.AllowSeconds, DropUDPKnockPort: c.DropUDPKnockPort, UDPKnockPort: c.UDPKnockPort,
 		Nftables: libfw.NftablesConfig{Table: c.Nftables.Table, Chain: c.Nftables.Chain, SetV4: c.Nftables.SetV4, SetV6: c.Nftables.SetV6, Family: c.Nftables.Family},
 		Iptables: libfw.IptablesConfig{Chain: c.Iptables.Chain},
 		IPSet:    libfw.IPSetConfig{Set: c.IPSet.Set, SetV6: c.IPSet.SetV6},
