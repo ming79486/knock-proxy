@@ -8,4 +8,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/libknock/libknock v0.0.0-20260517010915-5a1d4e69420b
+require github.com/libknock/libknock v0.0.0-20260517013706-7d6cf3d8bf0b
