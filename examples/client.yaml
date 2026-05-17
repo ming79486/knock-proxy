@@ -14,6 +14,12 @@ knock:
   retry: 2
   time_window_seconds: 30
 
+auth:
+  frame: "envelope-v2"
+  hint_mode: "route-hint"
+  frame_size_buckets: [128, 192, 256, 384, 512]
+  padding_policy: "random-bucket"
+
 transport:
   encryption: false
   method: "chacha20-poly1305"

@@ -111,7 +111,7 @@ func handleClientConn(parent context.Context, rt config.ClientRuntime, log *logg
 	}
 	defer remote.Close()
 
-	peer, err := libknock.ClientAuthWithInfo(parent, remote, libknock.ClientConfig{ClientID: rt.ClientID, Secret: rt.Secret, ServerPort: rt.ServerPort, AuthTimeout: rt.AuthTimeout})
+	peer, err := libknock.ClientAuthWithInfo(parent, remote, clientAuthConfig(rt))
 	if err != nil {
 		log.Event("auth write failed", logging.F("server", rt.ServerAddr), logging.F("error", err))
 		return

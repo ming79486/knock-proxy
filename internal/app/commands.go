@@ -114,11 +114,11 @@ func RunProbe(ctx context.Context, opts ProbeOptions) error {
 	}
 	defer conn.Close()
 	fmt.Printf("[OK] tcp connected: %s\n", time.Since(start).Round(time.Millisecond))
-	peer, err := libknock.ClientAuthWithInfo(ctx, conn, libknock.ClientConfig{ClientID: rt.ClientID, Secret: rt.Secret, ServerPort: rt.ServerPort, AuthTimeout: rt.AuthTimeout})
+	peer, err := libknock.ClientAuthWithInfo(ctx, conn, clientAuthConfig(rt))
 	if err != nil {
 		return fmt.Errorf("[FAIL] tcp_auth_write_failed: %w", err)
 	}
-	fmt.Printf("[OK] tcp auth frame sent: %s\n", time.Since(start).Round(time.Millisecond))
+	fmt.Printf("[OK] tcp auth %s sent: %s\n", rt.AuthFrame, time.Since(start).Round(time.Millisecond))
 	_ = conn.SetDeadline(time.Time{})
 	if rt.TransportEncrypted {
 		conn, err = secure.Wrap(conn, rt.Secret, rt.ClientID, base64.RawStdEncoding.EncodeToString(peer.Nonce), rt.ServerPort, secure.ClientRole)
@@ -293,6 +293,12 @@ access:
 knock:
   method: %q
 auth:
+  frame: "envelope-v2"
+  hint_mode: "route-hint"
+  frame_size_buckets: [128, 192, 256, 384, 512]
+  padding_policy: "random-bucket"
+  fail_delay_jitter_min: "20ms"
+  fail_delay_jitter_max: "80ms"
   clients:
     - client_id: %q
       secret: "base64:%s"
@@ -322,6 +328,11 @@ client:
   secret: "base64:%s"
 knock:
   method: %q
+auth:
+  frame: "envelope-v2"
+  hint_mode: "route-hint"
+  frame_size_buckets: [128, 192, 256, 384, 512]
+  padding_policy: "random-bucket"
 transport:
   encryption: false
 `, opts.ClientID, base64.StdEncoding.EncodeToString(secret), knockMethod)
@@ -354,6 +365,11 @@ client:
   secret: "base64:%s"
 knock:
   method: %q
+auth:
+  frame: "envelope-v2"
+  hint_mode: "route-hint"
+  frame_size_buckets: [128, 192, 256, 384, 512]
+  padding_policy: "random-bucket"
 transport:
   encryption: false
 `, opts.Listen, opts.ServerAddr, opts.ClientID, base64.StdEncoding.EncodeToString(secret), method)

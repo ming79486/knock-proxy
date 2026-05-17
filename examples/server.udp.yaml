@@ -17,6 +17,12 @@ knock:
   time_window_seconds: 30
 
 auth:
+  frame: "envelope-v2"
+  hint_mode: "route-hint"
+  frame_size_buckets: [128, 192, 256, 384, 512]
+  padding_policy: "random-bucket"
+  fail_delay_jitter_min: "20ms"
+  fail_delay_jitter_max: "80ms"
   time_window_seconds: 30
   nonce_cache_seconds: 300
   clients:

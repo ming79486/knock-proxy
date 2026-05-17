@@ -299,7 +299,7 @@ func newServerState(rt config.ServerRuntime, fw firewall.Backend, log *logging.L
 		metrics:      metrics.NewBuildInfo(),
 		knocks:       newKnockStore(),
 		nonces:       libknock.NewMemoryReplayCache(rt.NonceCacheTTL),
-		tcpAuth:      libknock.ServerConfig{ServerPort: rt.Port, Secrets: libknock.NewStaticSecretResolver(secrets), ReplayCache: libknock.NewMemoryReplayCache(rt.NonceCacheTTL), AuthTimeout: rt.AuthTimeout, TimeWindow: rt.AuthTimeWindow, MaxFrameSize: libknock.DefaultMaxFrameSize},
+		tcpAuth:      serverAuthConfig(rt, secrets),
 		rate:         rate,
 		bans:         limits.NewBanTrackerWithLimit(rt.AuthFailBanTTL, rt.MaxTrackedIPs),
 		conns:        limits.NewConnections(rt.MaxGlobalConnections, rt.MaxConnectionsPerIP, rt.MaxConnectionsPerClient),

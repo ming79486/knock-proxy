@@ -34,6 +34,9 @@ func TestInitClientDefaultsWindowsToUDP(t *testing.T) {
 	if !strings.Contains(string(data), `method: "udp"`) {
 		t.Fatalf("expected windows client init to default to udp, got:\n%s", data)
 	}
+	if !strings.Contains(string(data), `frame: "envelope-v2"`) {
+		t.Fatalf("expected generated client auth frame envelope-v2, got:\n%s", data)
+	}
 	if _, err := os.Stat(filepath.Join(dir, "knock-proxy-client.ps1")); err != nil {
 		t.Fatalf("expected Windows client launcher: %v", err)
 	}
@@ -65,6 +68,9 @@ func TestInitServerSampleUsesRequestedClientPlatformDefault(t *testing.T) {
 	}
 	if !strings.Contains(string(server), `method: "udp"`) {
 		t.Fatalf("expected windows server init method udp to match sample client, got:\n%s", server)
+	}
+	if !strings.Contains(string(server), `frame: "envelope-v2"`) || !strings.Contains(string(data), `frame: "envelope-v2"`) {
+		t.Fatalf("expected generated server and sample client auth frame envelope-v2")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "knock-proxy-server.service")); err != nil {
 		t.Fatalf("expected server systemd service: %v", err)

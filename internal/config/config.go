@@ -88,9 +88,17 @@ type ReplayConfig struct {
 }
 
 type AuthConfig struct {
-	TimeWindowSeconds int          `yaml:"time_window_seconds"`
-	NonceCacheSeconds int          `yaml:"nonce_cache_seconds"`
-	Clients           []AuthClient `yaml:"clients"`
+	Frame              string       `yaml:"frame"`
+	HintMode           string       `yaml:"hint_mode"`
+	FrameSizeBuckets   []int        `yaml:"frame_size_buckets"`
+	PaddingPolicy      string       `yaml:"padding_policy"`
+	FailDelayJitterMin string       `yaml:"fail_delay_jitter_min"`
+	FailDelayJitterMax string       `yaml:"fail_delay_jitter_max"`
+	DrainOnFailBytes   int          `yaml:"drain_on_fail_bytes"`
+	DrainOnFailTimeout string       `yaml:"drain_on_fail_timeout"`
+	TimeWindowSeconds  int          `yaml:"time_window_seconds"`
+	NonceCacheSeconds  int          `yaml:"nonce_cache_seconds"`
+	Clients            []AuthClient `yaml:"clients"`
 }
 
 type AuthClient struct {
@@ -190,6 +198,10 @@ type ClientRuntime struct {
 	SequenceJitter     time.Duration
 	ConnectTimeout     time.Duration
 	AuthTimeout        time.Duration
+	AuthFrame          string
+	AuthHintMode       string
+	AuthFrameBuckets   []int
+	AuthPaddingPolicy  string
 	IdleTimeout        time.Duration
 	TransportEncrypted bool
 	TransportMethod    string
@@ -228,6 +240,14 @@ type ServerRuntime struct {
 	RemoveAfterAuth         bool
 	UpstreamConnectTimeout  time.Duration
 	AuthTimeout             time.Duration
+	AuthFrame               string
+	AuthHintMode            string
+	AuthFrameBuckets        []int
+	AuthPaddingPolicy       string
+	AuthFailDelayJitterMin  time.Duration
+	AuthFailDelayJitterMax  time.Duration
+	AuthDrainOnFailBytes    int
+	AuthDrainOnFailTimeout  time.Duration
 	IdleTimeout             time.Duration
 	MaxGlobalConnections    int
 	MaxConnectionsPerIP     int
@@ -265,10 +285,57 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
+	if err := rejectLegacyKnockConfig(data); err != nil {
+		return cfg, err
+	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+func rejectLegacyKnockConfig(data []byte) error {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return err
+	}
+	for _, path := range [][]string{{"knock", "frame"}, {"knock_frame_format"}, {"legacy_json"}, {"allow_json_knock"}, {"json_compat"}, {"json_sequence_compat"}} {
+		n, ok := yamlPath(&root, path...)
+		if !ok {
+			continue
+		}
+		if len(path) == 2 && path[0] == "knock" && path[1] == "frame" && n.Value != "json" && n.Value != "legacy-json" {
+			continue
+		}
+		return fmt.Errorf("unsupported legacy UDP knock config %q; binary UDP knock is required", strings.Join(path, "."))
+	}
+	return nil
+}
+
+func yamlPath(n *yaml.Node, path ...string) (*yaml.Node, bool) {
+	if n == nil {
+		return nil, false
+	}
+	if n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
+		n = n.Content[0]
+	}
+	for _, key := range path {
+		if n.Kind != yaml.MappingNode {
+			return nil, false
+		}
+		found := false
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if n.Content[i].Value == key {
+				n = n.Content[i+1]
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, false
+		}
+	}
+	return n, true
 }
 
 func DefaultConfig() Config {
@@ -288,8 +355,14 @@ func DefaultConfig() Config {
 			MaxConnectionsPerKnock:  1,
 		},
 		Auth: AuthConfig{
-			TimeWindowSeconds: 30,
-			NonceCacheSeconds: 300,
+			Frame:              "envelope-v2",
+			HintMode:           "route-hint",
+			FrameSizeBuckets:   []int{128, 192, 256, 384, 512},
+			PaddingPolicy:      "random-bucket",
+			FailDelayJitterMin: "20ms",
+			FailDelayJitterMax: "80ms",
+			TimeWindowSeconds:  30,
+			NonceCacheSeconds:  300,
 		},
 		Firewall: FirewallConfig{
 			Backend:         "auto",
@@ -347,6 +420,10 @@ func (c Config) ClientRuntime() (ClientRuntime, error) {
 		return ClientRuntime{}, err
 	}
 	if err := validateTransport(c.Transport); err != nil {
+		return ClientRuntime{}, err
+	}
+	authRuntime, err := parseAuth(c.Auth)
+	if err != nil {
 		return ClientRuntime{}, err
 	}
 	if err := validateLog(c.Log); err != nil {
@@ -413,6 +490,10 @@ func (c Config) ClientRuntime() (ClientRuntime, error) {
 		SequenceJitter:     seq.maxJitter,
 		ConnectTimeout:     seconds(defaultInt(c.Timeouts.ConnectSeconds, 5)),
 		AuthTimeout:        seconds(defaultInt(c.Timeouts.AuthSeconds, 5)),
+		AuthFrame:          authRuntime.frame,
+		AuthHintMode:       authRuntime.hintMode,
+		AuthFrameBuckets:   append([]int(nil), authRuntime.frameSizeBuckets...),
+		AuthPaddingPolicy:  authRuntime.paddingPolicy,
 		IdleTimeout:        seconds(defaultInt(c.Timeouts.IdleSeconds, 300)),
 		TransportEncrypted: c.Transport.Encryption,
 		TransportMethod:    defaultString(c.Transport.Method, "chacha20-poly1305"),
@@ -445,6 +526,10 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 		return ServerRuntime{}, errors.New("transport.encryption cannot be true when access.mode is direct")
 	}
 	if err := validateTransport(c.Transport); err != nil {
+		return ServerRuntime{}, err
+	}
+	authRuntime, err := parseAuth(c.Auth)
+	if err != nil {
 		return ServerRuntime{}, err
 	}
 	if err := validateLog(c.Log); err != nil {
@@ -559,6 +644,14 @@ func (c Config) ServerRuntime() (ServerRuntime, error) {
 		RemoveAfterAuth:         fw.RemoveAfterAuth,
 		UpstreamConnectTimeout:  seconds(defaultInt(c.Timeouts.UpstreamConnectSeconds, defaultInt(c.Timeouts.ConnectSeconds, 5))),
 		AuthTimeout:             seconds(defaultInt(c.Timeouts.AuthSeconds, 5)),
+		AuthFrame:               authRuntime.frame,
+		AuthHintMode:            authRuntime.hintMode,
+		AuthFrameBuckets:        append([]int(nil), authRuntime.frameSizeBuckets...),
+		AuthPaddingPolicy:       authRuntime.paddingPolicy,
+		AuthFailDelayJitterMin:  authRuntime.failDelayJitterMin,
+		AuthFailDelayJitterMax:  authRuntime.failDelayJitterMax,
+		AuthDrainOnFailBytes:    authRuntime.drainOnFailBytes,
+		AuthDrainOnFailTimeout:  authRuntime.drainOnFailTimeout,
 		IdleTimeout:             seconds(defaultInt(c.Timeouts.IdleSeconds, 300)),
 		MaxGlobalConnections:    defaultInt(c.Limits.MaxGlobalConnections, 1024),
 		MaxConnectionsPerIP:     defaultInt(c.Limits.MaxConnectionsPerIP, 32),
@@ -686,6 +779,76 @@ func validateLimits(l LimitsConfig) error {
 		return errors.New("limits.max_nonce_entries cannot be negative")
 	}
 	return nil
+}
+
+type authRuntime struct {
+	frame              string
+	hintMode           string
+	frameSizeBuckets   []int
+	paddingPolicy      string
+	failDelayJitterMin time.Duration
+	failDelayJitterMax time.Duration
+	drainOnFailBytes   int
+	drainOnFailTimeout time.Duration
+}
+
+func parseAuth(a AuthConfig) (authRuntime, error) {
+	frame := defaultString(a.Frame, "envelope-v2")
+	switch frame {
+	case "envelope-v2", "tcp-auth-envelope-v2":
+		frame = "envelope-v2"
+	case "frame-v1", "tcp-auth-frame-v1", "legacy-v1":
+		frame = "frame-v1"
+	default:
+		return authRuntime{}, fmt.Errorf("unsupported auth.frame %q; expected envelope-v2 or frame-v1", frame)
+	}
+	hintMode := defaultString(a.HintMode, "route-hint")
+	if hintMode != "route-hint" && hintMode != "none" {
+		return authRuntime{}, fmt.Errorf("unsupported auth.hint_mode %q; expected route-hint or none", hintMode)
+	}
+	paddingPolicy := defaultString(a.PaddingPolicy, "random-bucket")
+	if paddingPolicy != "random-bucket" && paddingPolicy != "none" {
+		return authRuntime{}, fmt.Errorf("unsupported auth.padding_policy %q; expected random-bucket or none", paddingPolicy)
+	}
+	buckets := append([]int(nil), a.FrameSizeBuckets...)
+	if len(buckets) == 0 {
+		buckets = []int{128, 192, 256, 384, 512}
+	}
+	prev := 0
+	for _, bucket := range buckets {
+		if bucket < 128 || bucket > 512 {
+			return authRuntime{}, fmt.Errorf("auth.frame_size_buckets contains %d; expected values between 128 and 512", bucket)
+		}
+		if bucket <= prev {
+			return authRuntime{}, errors.New("auth.frame_size_buckets must be strictly increasing")
+		}
+		prev = bucket
+	}
+	jitterMin, err := parseDurationDefault(a.FailDelayJitterMin, 20*time.Millisecond)
+	if err != nil {
+		return authRuntime{}, fmt.Errorf("auth.fail_delay_jitter_min: %w", err)
+	}
+	jitterMax, err := parseDurationDefault(a.FailDelayJitterMax, 80*time.Millisecond)
+	if err != nil {
+		return authRuntime{}, fmt.Errorf("auth.fail_delay_jitter_max: %w", err)
+	}
+	if jitterMin < 0 || jitterMax < 0 {
+		return authRuntime{}, errors.New("auth.fail_delay_jitter_min/max cannot be negative")
+	}
+	if jitterMin > jitterMax {
+		return authRuntime{}, errors.New("auth.fail_delay_jitter_min cannot be greater than auth.fail_delay_jitter_max")
+	}
+	drainTimeout, err := parseDurationDefault(a.DrainOnFailTimeout, 0)
+	if err != nil {
+		return authRuntime{}, fmt.Errorf("auth.drain_on_fail_timeout: %w", err)
+	}
+	if a.DrainOnFailBytes < 0 {
+		return authRuntime{}, errors.New("auth.drain_on_fail_bytes cannot be negative")
+	}
+	if drainTimeout < 0 {
+		return authRuntime{}, errors.New("auth.drain_on_fail_timeout cannot be negative")
+	}
+	return authRuntime{frame: frame, hintMode: hintMode, frameSizeBuckets: buckets, paddingPolicy: paddingPolicy, failDelayJitterMin: jitterMin, failDelayJitterMax: jitterMax, drainOnFailBytes: a.DrainOnFailBytes, drainOnFailTimeout: drainTimeout}, nil
 }
 
 func validateAddress(name, addr string) error {

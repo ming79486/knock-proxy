@@ -11,7 +11,7 @@ Configuration files use YAML. Linux client example: `examples/client.yaml`. Wind
 | `server` | none | Server settings. |
 | `access` | `proxy` | Access mode settings. |
 | `knock` | server/Linux client `tcp-syn`, Windows/macOS client `udp` | Knock method settings. |
-| `auth` | partial defaults | HMAC second-stage authentication settings. |
+| `auth` | partial defaults | TCP authentication settings. |
 | `firewall` | partial defaults | Firewall backend settings. |
 | `transport` | plaintext | Basic transport encryption settings. |
 | `limits` | partial defaults | Connection, rate-limit, and ban settings. |
@@ -49,7 +49,7 @@ Configuration files use YAML. Linux client example: `examples/client.yaml`. Wind
 | `remove_after_first_connect` | `true` | Revoke allow after the first direct connection. |
 | `max_connections_per_knock` | `1` | Allowed connections per knock in direct mode. |
 
-`proxy` mode runs the local client. Its path is knock accept -> temporary firewall allow -> TCP HMAC second-stage authentication -> optional encrypted relay -> revoke, making it the recommended production default. `direct` mode lets real clients such as SSH/RDP/MySQL connect directly after a one-shot knock. Its path is knock accept -> temporary firewall allow -> first real TCP connection -> revoke; use short `allow_seconds`, `remove_after_first_connect: true`, and a small `max_connections_per_knock`.
+`proxy` mode runs the local client. Its path is knock accept -> temporary firewall allow -> TCP authentication -> optional encrypted relay -> revoke, making it the recommended production default. `direct` mode lets real clients such as SSH/RDP/MySQL connect directly after a one-shot knock. Its path is knock accept -> temporary firewall allow -> first real TCP connection -> revoke; use short `allow_seconds`, `remove_after_first_connect: true`, and a small `max_connections_per_knock`.
 
 Direct mode configuration essentials: `require_tcp_auth: false` and `transport.encryption: false`. Real SSH/RDP/MySQL clients send their native protocols directly, with access bounded by the short firewall allow window.
 
@@ -97,6 +97,14 @@ Windows client note: client mode defaults to `udp`. Windows `tcp-syn` mode works
 
 | Field | Default | Description |
 | --- | --- | --- |
+| `frame` | `envelope-v2` | TCP authentication wire format. Use `envelope-v2` for the bucketized encrypted envelope. Use `frame-v1` only for legacy compatibility. |
+| `hint_mode` | `route-hint` | Envelope v2 hint mode: `route-hint` or `none`. Route hints avoid trying every configured secret while keeping the fixed header randomized. |
+| `frame_size_buckets` | `[128, 192, 256, 384, 512]` | Envelope v2 bucket sizes. Values must be strictly increasing and between 128 and 512 bytes. |
+| `padding_policy` | `random-bucket` | Envelope v2 padding policy: `random-bucket` or `none`. |
+| `fail_delay_jitter_min` | `20ms` | Minimum bounded delay before closing failed TCP auth connections. Set both jitter values to `0s` to disable. |
+| `fail_delay_jitter_max` | `80ms` | Maximum bounded delay before closing failed TCP auth connections. Keep it below the auth timeout budget. |
+| `drain_on_fail_bytes` | `0` | Optional bytes to drain before closing failed TCP auth connections. Disabled by default. |
+| `drain_on_fail_timeout` | `0s` | Optional drain deadline. Disabled by default. |
 | `time_window_seconds` | `30` | Allowed timestamp skew for TCP authentication. |
 | `nonce_cache_seconds` | `300` | Nonce replay cache duration. |
 | `clients` | none | Allowed clients. |
@@ -179,7 +187,7 @@ The `script` backend is for integrating custom firewall scripts. For `udp-passiv
 | `encryption` | `false` | Enable ChaCha20-Poly1305 basic transport encryption. |
 | `method` | `chacha20-poly1305` | The only supported method. |
 
-The authentication frame remains plaintext JSON and is HMAC-protected. Application traffic is encrypted after authentication succeeds.
+Transport encryption starts after TCP authentication succeeds. With the default `auth.frame: envelope-v2`, authentication metadata is already AEAD-sealed inside the fixed-size bucketed envelope; transport encryption only covers the later proxied stream.
 
 ## `limits`
 
@@ -232,7 +240,7 @@ The authentication frame remains plaintext JSON and is HMAC-protected. Applicati
 ## Security Notes and State Machine
 
 - Protection goal: hide public TCP services from unauthenticated scans and opportunistic brute force, then gate access with client IDs, shared secrets, HMAC, nonces, and short firewall allow windows.
-- `proxy` mode is the production default: knock accept -> temporary firewall allow -> TCP HMAC auth -> optional encrypted relay -> revoke. TCP auth uses `version`, timestamp, nonce, protected TCP port, client ID, and HMAC.
+- `proxy` mode is the production default: knock accept -> temporary firewall allow -> TCP auth envelope -> optional encrypted relay -> revoke. TCP auth envelope v2 uses a random prefix, optional route hint, AEAD-sealed metadata, and bucket padding.
 - `direct` mode state: knock accept -> temporary firewall allow -> first direct TCP connection -> revoke. It fits lower-risk or controlled networks where native TCP clients need to connect directly.
 - UDP knock and TCP auth include a nonce and are protected by the nonce cache. `udp-seq` and `udp-passive-seq` split the knock across multiple nonce-bearing packets tracked by `knock.sequence` and `knock.replay`. TCP SYN knock has no nonce; `tcp-syn` and `tcp-syn-seq` use time-slot HMAC encoded in SYN fields, so replay resistance is bounded by the configured time window. `tcp-syn-seq` uses the protected TCP destination port for every part so deployments that only expose that port at an upstream/cloud firewall can still receive the knock.
 - `udp-passive` / `udp-passive-seq` require a backend that can drop the UDP knock port; nftables/iptables/ipset are recommended. With custom scripts, keep the corresponding DROP rule in the external script layer.
@@ -250,4 +258,8 @@ The authentication frame remains plaintext JSON and is HMAC-protected. Applicati
 
 ## Protocol Compatibility
 
-Current protocol version is `1` for UDP knock and TCP auth JSON frames. Receivers accept explicitly supported versions and return clear validation errors for other versions, avoiding silent downgrade or ambiguous frames. TCP SYN knock compatibility is defined by the `syn-knock` / `syn-seq-knock` HMAC purposes, protected TCP port, client ID, and time-slot layout. Future protocol changes should introduce a new version and retain explicit validation errors during migration.
+UDP knock uses binary frame v1. It removes JSON plaintext fields but still has a fixed outer binary header, so treat it as the current compatibility format rather than the final strongest passive-identification format.
+
+TCP auth defaults to `envelope-v2`: `prefix_random[24]`, optional `route_hint[8]`, and an AEAD-sealed envelope padded to one of the configured buckets. `frame-v1` remains available for compatibility with older deployments, but it has a fixed binary header and should not be the preferred public high-risk format.
+
+Receivers accept explicitly configured formats and return clear validation errors for unsupported versions or flags, avoiding silent downgrade or ambiguous frames. TCP SYN knock compatibility is defined by the `syn-knock` / `syn-seq-knock` HMAC purposes, protected TCP port, client ID, and time-slot layout. Future UDP envelope changes should introduce a new version and retain explicit validation errors during migration.
