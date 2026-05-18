@@ -1,5 +1,5 @@
-github.com/libknock/libknock v0.1.0-rc0.0.20260518054037-21d1dce97efd h1:SIyw2d5HReyIGFBL44UWpL3iE+J/KK3YZH2FV5lVhq0=
-github.com/libknock/libknock v0.1.0-rc0.0.20260518054037-21d1dce97efd/go.mod h1:SUaV/ohBOMy5rAmcBI4m5tnvPrixZutZlN3y5wHldsQ=
+github.com/libknock/libknock v0.1.0-rc1 h1:y1ShHHLTv+2LNnKbYocP9XkKA/YpVp4rReasNRgkZVg=
+github.com/libknock/libknock v0.1.0-rc1/go.mod h1:SUaV/ohBOMy5rAmcBI4m5tnvPrixZutZlN3y5wHldsQ=
 golang.org/x/crypto v0.51.0 h1:IBPXwPfKxY7cWQZ38ZCIRPI50YLeevDLlLnyC5wRGTI=
 golang.org/x/crypto v0.51.0/go.mod h1:8AdwkbraGNABw2kOX6YFPs3WM22XqI4EXEd8g+x7Oc8=
 golang.org/x/sys v0.44.0 h1:ildZl3J4uzeKP07r2F++Op7E9B29JRUy+a27EibtBTQ=
