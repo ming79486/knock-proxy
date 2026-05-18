@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/libknock/libknock"
+	"github.com/libknock/libknock/auth"
 	"github.com/libknock/libknock/knock"
 	"github.com/ming79486/knock-proxy/internal/config"
 	"github.com/ming79486/knock-proxy/internal/firewall"
@@ -273,8 +273,8 @@ type serverState struct {
 	log          *logging.Logger
 	metrics      *metrics.Registry
 	knocks       *knockStore
-	nonces       libknock.ReplayCache
-	tcpAuth      libknock.ServerConfig
+	nonces       auth.ReplayCache
+	tcpAuth      auth.ServerConfig
 	rate         *limits.RateLimiter
 	bans         *limits.BanTracker
 	conns        *limits.Connections
@@ -298,7 +298,7 @@ func newServerState(rt config.ServerRuntime, fw firewall.Backend, log *logging.L
 		log:          log,
 		metrics:      metrics.NewBuildInfo(),
 		knocks:       newKnockStore(),
-		nonces:       libknock.NewMemoryReplayCache(rt.NonceCacheTTL),
+		nonces:       auth.NewMemoryReplayCache(rt.NonceCacheTTL),
 		tcpAuth:      serverAuthConfig(rt, secrets),
 		rate:         rate,
 		bans:         limits.NewBanTrackerWithLimit(rt.AuthFailBanTTL, rt.MaxTrackedIPs),
@@ -412,7 +412,7 @@ func (s *serverState) handleConn(parent context.Context, conn net.Conn) {
 		return
 	}
 
-	authConn, peer, err := libknock.ServerAuth(parent, conn, s.tcpAuth)
+	authConn, peer, err := auth.ServerAuth(parent, conn, s.tcpAuth)
 	if err != nil {
 		s.recordFailure(srcIP, "", reasonFromAuthError(err), err)
 		return
@@ -617,15 +617,15 @@ func startMetricsServer(ctx context.Context, rt config.ServerRuntime, registry *
 
 func reasonFromAuthError(err error) string {
 	switch {
-	case errors.Is(err, libknock.ErrTimeSkew):
+	case errors.Is(err, auth.ErrTimeSkew):
 		return "expired_timestamp"
-	case errors.Is(err, libknock.ErrReplayDetected):
+	case errors.Is(err, auth.ErrReplayDetected):
 		return "replayed_nonce"
-	case errors.Is(err, libknock.ErrUnknownClient):
+	case errors.Is(err, auth.ErrUnknownClient):
 		return "unknown_client_id"
-	case errors.Is(err, libknock.ErrFrameTooLarge), errors.Is(err, libknock.ErrInvalidFrame):
+	case errors.Is(err, auth.ErrFrameTooLarge), errors.Is(err, auth.ErrInvalidFrame):
 		return "invalid_frame"
-	case errors.Is(err, libknock.ErrAuthFailed):
+	case errors.Is(err, auth.ErrAuthFailed):
 		return "invalid_hmac"
 	default:
 		return "tcp_auth_failed"

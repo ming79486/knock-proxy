@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/libknock/libknock"
+	"github.com/libknock/libknock/auth"
 	"github.com/libknock/libknock/knock"
 	"github.com/ming79486/knock-proxy/internal/config"
 	"github.com/ming79486/knock-proxy/internal/firewall"
@@ -114,7 +114,7 @@ func RunProbe(ctx context.Context, opts ProbeOptions) error {
 	}
 	defer conn.Close()
 	fmt.Printf("[OK] tcp connected: %s\n", time.Since(start).Round(time.Millisecond))
-	peer, err := libknock.ClientAuthWithInfo(ctx, conn, clientAuthConfig(rt))
+	peer, err := auth.ClientAuthWithInfo(ctx, conn, clientAuthConfig(rt))
 	if err != nil {
 		return fmt.Errorf("[FAIL] tcp_auth_write_failed: %w", err)
 	}

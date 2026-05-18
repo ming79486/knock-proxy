@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/libknock/libknock"
+	"github.com/libknock/libknock/auth"
 	"github.com/libknock/libknock/knock"
 	"github.com/ming79486/knock-proxy/internal/config"
 	"github.com/ming79486/knock-proxy/internal/logging"
@@ -111,7 +111,7 @@ func handleClientConn(parent context.Context, rt config.ClientRuntime, log *logg
 	}
 	defer remote.Close()
 
-	peer, err := libknock.ClientAuthWithInfo(parent, remote, clientAuthConfig(rt))
+	peer, err := auth.ClientAuthWithInfo(parent, remote, clientAuthConfig(rt))
 	if err != nil {
 		log.Event("auth write failed", logging.F("server", rt.ServerAddr), logging.F("error", err))
 		return
